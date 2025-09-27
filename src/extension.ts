@@ -1,9 +1,9 @@
-import * as vscode from 'vscode';
-import { FlowTestProvider } from './testProvider';
-import { TestScanner } from './testScanner';
-import { TestRunner } from './testRunner';
-import { ConfigService } from './services/configService';
-import { HtmlResultsService } from './services/htmlResultsService';
+import * as vscode from "vscode";
+import { FlowTestProvider } from "./testProvider";
+import { TestScanner } from "./testScanner";
+import { TestRunner } from "./testRunner";
+import { ConfigService } from "./services/configService";
+import { HtmlResultsService } from "./services/htmlResultsService";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -12,71 +12,109 @@ export function activate(context: vscode.ExtensionContext) {
   const configService = ConfigService.getInstance();
   const htmlResultsService = HtmlResultsService.getInstance();
 
-  vscode.window.registerTreeDataProvider('flowTestExplorer', testProvider);
+  vscode.window.registerTreeDataProvider("flowTestExplorer", testProvider);
 
   const commands = [
-    vscode.commands.registerCommand('flow-test-runner.refresh', () => {
+    vscode.commands.registerCommand("flow-test-runner.refresh", () => {
       testProvider.refresh();
     }),
 
-    vscode.commands.registerCommand('flow-test-runner.runTest', (item) => {
+    vscode.commands.registerCommand("flow-test-runner.runTest", (item) => {
       if (item) {
         testProvider.runTest(item);
       }
     }),
 
-    vscode.commands.registerCommand('flow-test-runner.runSuite', (item) => {
+    vscode.commands.registerCommand("flow-test-runner.runSuite", (item) => {
       if (item) {
         testProvider.runTest(item);
       }
     }),
 
-    vscode.commands.registerCommand('flow-test-runner.openTest', (item) => {
+    vscode.commands.registerCommand("flow-test-runner.runAll", async () => {
+      await testProvider.runAllSuites();
+    }),
+
+    vscode.commands.registerCommand("flow-test-runner.openTest", (item) => {
       if (item) {
         testProvider.openTestFile(item);
       }
     }),
 
-    vscode.commands.registerCommand('flow-test-runner.retest', async () => {
+    vscode.commands.registerCommand("flow-test-runner.retest", async () => {
       await testRunner.retestLast();
     }),
 
-    vscode.commands.registerCommand('flow-test-runner.viewResults', async (item) => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('No workspace folder found');
-        return;
+    vscode.commands.registerCommand(
+      "flow-test-runner.viewResults",
+      async (item) => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage("No workspace folder found");
+          return;
+        }
+
+        const suiteName = item?.suite?.name || item?.label;
+        await htmlResultsService.showResults(
+          workspaceFolder.uri.fsPath,
+          suiteName
+        );
       }
+    ),
 
-      const suiteName = item?.suite?.name || item?.label;
-      await htmlResultsService.showResults(workspaceFolder.uri.fsPath, suiteName);
-    }),
+    vscode.commands.registerCommand(
+      "flow-test-runner.viewLatestResults",
+      async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage("No workspace folder found");
+          return;
+        }
 
-    vscode.commands.registerCommand('flow-test-runner.createConfig', async () => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage('No workspace folder found');
-        return;
+        await htmlResultsService.showResults(workspaceFolder.uri.fsPath);
       }
+    ),
 
-      await configService.createDefaultConfigFile(workspaceFolder.uri.fsPath);
-    }),
+    vscode.commands.registerCommand(
+      "flow-test-runner.createConfig",
+      async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage("No workspace folder found");
+          return;
+        }
 
-    vscode.commands.registerCommand('flow-test-runner.selectConfig', async () => {
-      await configService.promptForConfigFile();
-    }),
+        await configService.createDefaultConfigFile(workspaceFolder.uri.fsPath);
+      }
+    ),
 
-    vscode.commands.registerCommand('flow-test-runner.clearInputCache', async () => {
-      await testRunner.clearInputCache();
-    }),
+    vscode.commands.registerCommand(
+      "flow-test-runner.selectConfig",
+      async () => {
+        await configService.promptForConfigFile();
+      }
+    ),
 
-    vscode.commands.registerCommand('flow-test-runner.showCachedInputs', async () => {
-      await testRunner.showCachedInputs();
-    }),
+    vscode.commands.registerCommand(
+      "flow-test-runner.clearInputCache",
+      async () => {
+        await testRunner.clearInputCache();
+      }
+    ),
 
-    vscode.commands.registerCommand('flow-test-runner.editCachedInput', async () => {
-      await testRunner.editCachedInput();
-    })
+    vscode.commands.registerCommand(
+      "flow-test-runner.showCachedInputs",
+      async () => {
+        await testRunner.showCachedInputs();
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.editCachedInput",
+      async () => {
+        await testRunner.editCachedInput();
+      }
+    ),
   ];
 
   context.subscriptions.push(
@@ -91,7 +129,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 async function checkForFlowTests() {
   const hasFlowTests = await hasFlowTestFiles();
-  vscode.commands.executeCommand('setContext', 'workspaceHasFlowTests', hasFlowTests);
+  vscode.commands.executeCommand(
+    "setContext",
+    "workspaceHasFlowTests",
+    hasFlowTests
+  );
 }
 
 async function hasFlowTestFiles(): Promise<boolean> {
@@ -102,8 +144,8 @@ async function hasFlowTestFiles(): Promise<boolean> {
   try {
     for (const workspaceFolder of vscode.workspace.workspaceFolders) {
       const files = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(workspaceFolder, '**/*.{yml,yaml}'),
-        '**/node_modules/**',
+        new vscode.RelativePattern(workspaceFolder, "**/*.{yml,yaml}"),
+        "**/node_modules/**",
         1
       );
 
@@ -112,7 +154,7 @@ async function hasFlowTestFiles(): Promise<boolean> {
       }
     }
   } catch (error) {
-    console.warn('Error checking for Flow Test files:', error);
+    console.warn("Error checking for Flow Test files:", error);
   }
 
   return false;

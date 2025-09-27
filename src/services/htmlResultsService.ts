@@ -570,7 +570,7 @@ export class HtmlResultsService {
     this.webviewPanel = vscode.window.createWebviewPanel(
       'flowTestResults',
       `Flow Test Results - ${title}`,
-      vscode.ViewColumn.Beside,
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,

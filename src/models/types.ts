@@ -36,6 +36,12 @@ export interface TestResult {
 
 export type TestStatus = 'pending' | 'running' | 'passed' | 'failed';
 
+export interface SuiteResult {
+  suite: string;
+  filePath?: string;
+  status: TestStatus;
+}
+
 export interface FlowTestConfig {
   configFile?: string;
   command: string;

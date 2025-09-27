@@ -23,12 +23,21 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flowTestRunnerContainer",
+          "title": "Flow Tests",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "flowTestRunnerContainer": [
         {
           "id": "flowTestExplorer",
           "name": "Flow Tests Engine",
-          "when": "workspaceHasFlowTests"
+          "icon": "media/icon.png"
         }
       ]
     },
@@ -47,6 +56,16 @@
         "command": "flow-test-runner.runSuite",
         "title": "Run Suite",
         "icon": "$(play-circle)"
+      },
+      {
+        "command": "flow-test-runner.runAll",
+        "title": "Run All Tests",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "flow-test-runner.viewLatestResults",
+        "title": "View Latest Results",
+        "icon": "$(preview)"
       },
       {
         "command": "flow-test-runner.openTest",
@@ -92,6 +111,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "flow-test-runner.runAll",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@0"
+        },
+        {
           "command": "flow-test-runner.refresh",
           "when": "view == flowTestExplorer",
           "group": "navigation@1"
@@ -100,6 +124,11 @@
           "command": "flow-test-runner.retest",
           "when": "view == flowTestExplorer",
           "group": "navigation@2"
+        },
+        {
+          "command": "flow-test-runner.viewLatestResults",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@3"
         },
         {
           "command": "flow-test-runner.createConfig",
@@ -137,6 +166,14 @@
       "commandPalette": [
         {
           "command": "flow-test-runner.retest",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.viewLatestResults",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.runAll",
           "when": "workspaceHasFlowTests"
         },
         {
@@ -179,7 +216,11 @@
         },
         "flowTestRunner.outputFormat": {
           "type": "string",
-          "enum": ["json", "html", "both"],
+          "enum": [
+            "json",
+            "html",
+            "both"
+          ],
           "default": "both",
           "description": "Output format for test results"
         },
