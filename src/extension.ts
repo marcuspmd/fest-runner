@@ -35,6 +35,20 @@ export function activate(context: vscode.ExtensionContext) {
       await testProvider.runAllSuites();
     }),
 
+    vscode.commands.registerCommand(
+      "flow-test-runner.filterTests",
+      async () => {
+        await testProvider.promptForFilter();
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.clearFilter",
+      () => {
+        testProvider.clearFilter();
+      }
+    ),
+
     vscode.commands.registerCommand("flow-test-runner.openTest", (item) => {
       if (item) {
         testProvider.openTestFile(item);

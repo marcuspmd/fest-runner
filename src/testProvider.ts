@@ -5,6 +5,7 @@ import {
   TestStatus,
   TestResult,
   SuiteResult,
+  FlowTestStep,
 } from "./models/types";
 import { TestScanner } from "./testScanner";
 import { TestRunner } from "./testRunner";
@@ -98,6 +99,9 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
   private suiteItemsByKey: Map<string, FlowTestItem> = new Map();
   private stepStatusCache: Map<string, TestStatus> = new Map();
   private suiteStatusCache: Map<string, TestStatus> = new Map();
+  private filterText: string | undefined;
+  private normalizedFilter: string | undefined;
+  private suiteFilterResults: Map<string, SuiteFilterResult> = new Map();
 
   constructor(
     private testScanner: TestScanner,
@@ -110,11 +114,13 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     this.testRunner.onSuiteResult(async (result) => {
       await this.handleSuiteResult(result);
     });
+    this.updateFilterContext();
   }
 
   refresh(): void {
     this.testItems.clear();
     this.suiteItemsByKey.clear();
+    this.suiteFilterResults.clear();
     this._onDidChangeTreeData.fire();
   }
 
@@ -137,14 +143,15 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
   private async getRootItems(): Promise<FlowTestItem[]> {
     try {
       const suites = await this.testScanner.findTestFiles();
+      const items: FlowTestItem[] = [];
 
-      suites.forEach((suite) => this.registerSuiteMetadata(suite));
+      for (const suite of suites) {
+        this.registerSuiteMetadata(suite);
+        const filterResult = this.evaluateSuiteFilter(suite);
+        if (!filterResult.include) {
+          continue;
+        }
 
-      if (suites.length === 0) {
-        return [];
-      }
-
-      return suites.map((suite) => {
         const item = new FlowTestItem(
           suite.suite_name || suite.name,
           vscode.TreeItemCollapsibleState.Expanded,
@@ -158,8 +165,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
         if (cachedStatus) {
           item.updateStatus(cachedStatus);
         }
-        return item;
-      });
+        items.push(item);
+      }
+
+      return items;
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to load test suites: ${error}`);
       return [];
@@ -176,31 +185,67 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       }
 
       this.registerSuiteMetadata(suite);
+      const filterResult = this.evaluateSuiteFilter(suite);
+      if (!filterResult.include) {
+        return [];
+      }
 
-      return suite.steps.map((step) => {
-        const item = new FlowTestItem(
-          step.name,
-          vscode.TreeItemCollapsibleState.None,
-          "step",
-          suitePath,
-          step.name,
-          step.step_id
-        );
-        if (step.step_id) {
-          item.description = step.step_id;
-        }
-        const key = this.getStepKey(suitePath, step.name);
-        this.testItems.set(key, item);
-        const cachedStatus = this.stepStatusCache.get(key);
-        if (cachedStatus) {
-          item.updateStatus(cachedStatus);
-        }
-        return item;
-      });
+      const allowedStepKeys = filterResult.stepKeys;
+
+      return suite.steps
+        .filter((step) => {
+          if (!allowedStepKeys) {
+            return true;
+          }
+          const stepKey = this.getStepKey(suitePath, step.name);
+          return allowedStepKeys.has(stepKey);
+        })
+        .map((step) => {
+          const item = new FlowTestItem(
+            step.name,
+            vscode.TreeItemCollapsibleState.None,
+            "step",
+            suitePath,
+            step.name,
+            step.step_id
+          );
+          if (step.step_id) {
+            item.description = step.step_id;
+          }
+          const key = this.getStepKey(suitePath, step.name);
+          this.testItems.set(key, item);
+          const cachedStatus = this.stepStatusCache.get(key);
+          if (cachedStatus) {
+            item.updateStatus(cachedStatus);
+          }
+          return item;
+        });
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to load test steps: ${error}`);
       return [];
     }
+  }
+
+  async promptForFilter(): Promise<void> {
+    const value = await vscode.window.showInputBox({
+      prompt: "Filtrar suites ou steps (nome, arquivo, metodo ou URL)",
+      placeHolder: "Ex.: login, POST /auth, smoke",
+      value: this.filterText ?? "",
+    });
+
+    if (value === undefined) {
+      return;
+    }
+
+    this.setFilter(value);
+  }
+
+  clearFilter(): void {
+    if (!this.normalizedFilter) {
+      return;
+    }
+
+    this.setFilter(undefined);
   }
 
   async runTest(item: FlowTestItem): Promise<void> {
@@ -552,6 +597,101 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     }
   }
 
+  private setFilter(filter: string | undefined): void {
+    const normalized = this.normalizeFilter(filter);
+    if (normalized === this.normalizedFilter) {
+      this.filterText = filter;
+      return;
+    }
+
+    this.filterText = filter;
+    this.normalizedFilter = normalized;
+    this.suiteFilterResults.clear();
+    this.updateFilterContext();
+    this.refresh();
+  }
+
+  private normalizeFilter(value: string | undefined): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+    const normalized = value.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private evaluateSuiteFilter(suite: FlowTestSuite): SuiteFilterResult {
+    const key = this.normalizePathKey(suite.filePath);
+    const cached = this.suiteFilterResults.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const normalizedFilter = this.normalizedFilter;
+    if (!normalizedFilter) {
+      const result: SuiteFilterResult = { include: true };
+      this.suiteFilterResults.set(key, result);
+      return result;
+    }
+
+    const suiteValues = [
+      suite.suite_name,
+      suite.name,
+      path.basename(suite.filePath),
+      suite.filePath,
+    ];
+
+    if (
+      suiteValues.some(
+        (value) => value && value.toLowerCase().includes(normalizedFilter)
+      )
+    ) {
+      const result: SuiteFilterResult = { include: true };
+      this.suiteFilterResults.set(key, result);
+      return result;
+    }
+
+    const matchedSteps = new Set<string>();
+    for (const step of suite.steps) {
+      if (this.stepMatchesFilter(step, normalizedFilter)) {
+        matchedSteps.add(this.getStepKey(suite.filePath, step.name));
+      }
+    }
+
+    if (matchedSteps.size > 0) {
+      const result: SuiteFilterResult = {
+        include: true,
+        stepKeys: matchedSteps,
+      };
+      this.suiteFilterResults.set(key, result);
+      return result;
+    }
+
+    const result: SuiteFilterResult = { include: false };
+    this.suiteFilterResults.set(key, result);
+    return result;
+  }
+
+  private stepMatchesFilter(step: FlowTestStep, filter: string): boolean {
+    const candidates = [
+      step.name,
+      step.step_id,
+      step.request?.method,
+      step.request?.url,
+    ];
+
+    return candidates.some(
+      (value) => value && value.toLowerCase().includes(filter)
+    );
+  }
+
+  private updateFilterContext(): void {
+    void vscode.commands.executeCommand(
+      "setContext",
+      "flowTestRunner.filterActive",
+      Boolean(this.normalizedFilter)
+    );
+  }
+
   private getStepKey(filePath: string, stepName: string): string {
     return `${this.normalizePathKey(filePath)}::${stepName
       .trim()
@@ -609,4 +749,9 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       vscode.window.showTextDocument(vscode.Uri.file(item.filePath));
     }
   }
+}
+
+interface SuiteFilterResult {
+  include: boolean;
+  stepKeys?: Set<string>;
 }

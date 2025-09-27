@@ -63,6 +63,16 @@
         "icon": "$(run-all)"
       },
       {
+        "command": "flow-test-runner.filterTests",
+        "title": "Filter Tests",
+        "icon": "$(search)"
+      },
+      {
+        "command": "flow-test-runner.clearFilter",
+        "title": "Clear Test Filter",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "flow-test-runner.viewLatestResults",
         "title": "View Latest Results",
         "icon": "$(preview)"
@@ -131,6 +141,16 @@
           "group": "navigation@3"
         },
         {
+          "command": "flow-test-runner.filterTests",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@4"
+        },
+        {
+          "command": "flow-test-runner.clearFilter",
+          "when": "view == flowTestExplorer && flowTestRunner.filterActive",
+          "group": "navigation@5"
+        },
+        {
           "command": "flow-test-runner.createConfig",
           "when": "view == flowTestExplorer",
           "group": "secondary@1"
@@ -179,6 +199,14 @@
         {
           "command": "flow-test-runner.viewResults",
           "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.filterTests",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.clearFilter",
+          "when": "workspaceHasFlowTests && flowTestRunner.filterActive"
         },
         {
           "command": "flow-test-runner.createConfig",
