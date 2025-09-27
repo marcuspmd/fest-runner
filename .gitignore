@@ -1,0 +1,48 @@
+# Node modules
+node_modules/
+
+# TypeScript / build outputs
+dist/
+out/
+build/
+lib/
+esm/
+*.tsbuildinfo
+
+# VS Code workspace settings
+.vscode/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage and reports
+coverage/
+.nyc_output/
+
+# IDEs
+.idea/
+*.iml
+
+# Misc caches
+.cache/
+.pnp.*
+parcel-cache/
+.next/
+.vite/
+.svelte-kit/
+.claude/
+
+# Lock files: keep package-lock.json / yarn.lock in repo (do not ignore)

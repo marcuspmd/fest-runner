@@ -1,0 +1,92 @@
+{
+  "name": "flow-test-runner",
+  "displayName": "Flow Test Runner",
+  "description": "Execute and manage Flow Test Engine tests directly from VS Code",
+  "version": "0.1.0",
+  "publisher": "marcuspmd",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.yml",
+    "workspaceContains:**/*.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "flowTestExplorer",
+          "name": "Flow Tests Engine",
+          "when": "workspaceHasFlowTests"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "flow-test-runner.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flow-test-runner.runTest",
+        "title": "Run Test",
+        "icon": "$(play)"
+      },
+      {
+        "command": "flow-test-runner.runSuite",
+        "title": "Run Suite",
+        "icon": "$(play-circle)"
+      },
+      {
+        "command": "flow-test-runner.openTest",
+        "title": "Open Test File",
+        "icon": "$(go-to-file)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "flow-test-runner.refresh",
+          "when": "view == flowTestExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "flow-test-runner.runTest",
+          "when": "view == flowTestExplorer && viewItem == test",
+          "group": "inline"
+        },
+        {
+          "command": "flow-test-runner.runSuite",
+          "when": "view == flowTestExplorer && viewItem == suite",
+          "group": "inline"
+        },
+        {
+          "command": "flow-test-runner.openTest",
+          "when": "view == flowTestExplorer && viewItem =~ /test|suite/",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "^18.x",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "yaml": "^2.3.4"
+  }
+}
