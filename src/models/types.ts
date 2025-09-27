@@ -12,6 +12,7 @@ export interface FlowTestSuite {
 
 export interface FlowTestStep {
   name: string;
+  step_id?: string;
   request: {
     method: string;
     url: string;
@@ -22,6 +23,7 @@ export interface FlowTestStep {
     status_code?: number;
     body?: Record<string, any>;
   };
+  input?: any;
 }
 
 export interface TestResult {
@@ -41,11 +43,20 @@ export interface FlowTestConfig {
   timeout: number;
   retryCount: number;
   workingDirectory?: string;
+  reporting?: {
+    outputDir?: string;
+    html?: {
+      outputSubdir?: string;
+      perSuite?: boolean;
+      aggregate?: boolean;
+    };
+  };
 }
 
 export interface TestExecutionState {
   suitePath: string;
   stepName?: string;
+  stepId?: string;
   config: FlowTestConfig;
   userInputs?: Record<string, string>;
   timestamp: number;
@@ -57,4 +68,7 @@ export interface UserInputRequest {
   prompt: string;
   required: boolean;
   masked?: boolean;
+  type?: string;
+  options?: Array<{ label: string; value: string; description?: string }>;
+  defaultValue?: string;
 }

@@ -11,11 +11,12 @@ export class FlowTestItem extends vscode.TreeItem {
     public readonly type: 'suite' | 'step',
     public readonly filePath?: string,
     public readonly stepName?: string,
+    public readonly stepId?: string,
     public status: TestStatus = 'pending'
   ) {
     super(label, collapsibleState);
 
-    this.contextValue = type;
+    this.contextValue = this.getContextValue();
     this.tooltip = this.getTooltip();
     this.iconPath = this.getIcon();
 
@@ -29,10 +30,20 @@ export class FlowTestItem extends vscode.TreeItem {
       case 'suite':
         return `Flow Test Suite: ${this.label}${this.filePath ? `\nFile: ${this.filePath}` : ''}`;
       case 'step':
-        return `Test Step: ${this.label}${this.status !== 'pending' ? `\nStatus: ${this.status}` : ''}`;
+        return `Test Step: ${this.label}` +
+          (this.stepId ? `\nStep ID: ${this.stepId}` : '') +
+          (this.status !== 'pending' ? `\nStatus: ${this.status}` : '');
       default:
         return this.label;
     }
+  }
+
+  private getContextValue(): string {
+    if (this.type === 'suite') {
+      return 'suite';
+    }
+
+    return this.stepId ? 'step-with-id' : 'step-without-id';
   }
 
   private getIcon(): vscode.ThemeIcon {
@@ -140,8 +151,12 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
           vscode.TreeItemCollapsibleState.None,
           'step',
           suitePath,
-          step.name
+          step.name,
+          step.step_id
         );
+        if (step.step_id) {
+          item.description = step.step_id;
+        }
         const key = `${path.basename(suitePath)}-${step.name}`;
         this.testItems.set(key, item);
         return item;
@@ -160,10 +175,14 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     if (item.type === 'suite') {
       await this.testRunner.runSuite(item.filePath);
     } else if (item.type === 'step' && item.stepName) {
+      if (!item.stepId) {
+        vscode.window.showWarningMessage('Este step não possui step_id definido e não pode ser executado isoladamente.');
+        return;
+      }
       item.updateStatus('running');
       this._onDidChangeTreeData.fire(item);
       try {
-        await this.testRunner.runStep(item.filePath, item.stepName);
+        await this.testRunner.runStep(item.filePath, item.stepName, item.stepId);
       } catch {
         item.updateStatus('failed');
         this._onDidChangeTreeData.fire(item);

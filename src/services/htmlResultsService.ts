@@ -1,10 +1,21 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ConfigService } from './configService';
+import { FlowTestConfig } from '../models/types';
+
+type ResolvedReportDirectories = {
+  workingDir: string;
+  outputDir: string;
+  htmlDir: string;
+  searchDirs: string[];
+  config: FlowTestConfig | null;
+};
 
 export class HtmlResultsService {
   private static instance: HtmlResultsService;
   private webviewPanel: vscode.WebviewPanel | undefined;
+  private configService = ConfigService.getInstance();
 
   private constructor() {}
 
@@ -31,43 +42,504 @@ export class HtmlResultsService {
   }
 
   private async findHtmlResults(workspacePath: string, suiteName?: string): Promise<string | null> {
-    const possiblePaths = [
-      path.join(workspacePath, 'test-results.html'),
-      path.join(workspacePath, 'flow-test-results.html'),
-      path.join(workspacePath, 'results', 'index.html'),
-      path.join(workspacePath, '.fest-runner', 'results.html'),
-      path.join(workspacePath, '.fest-runner', 'test-results.html')
-    ];
+    const directories = await this.resolveReportDirectories(workspacePath);
+    const targets = suiteName ? this.buildSuiteLookupKeys(suiteName) : new Set<string>();
 
     if (suiteName) {
-      possiblePaths.unshift(
-        path.join(workspacePath, `${suiteName}-results.html`),
-        path.join(workspacePath, 'results', `${suiteName}.html`)
+      const suiteReport = await this.findSuiteReportFromLatest(
+        directories.outputDir,
+        suiteName,
+        targets
       );
+      if (suiteReport) {
+        return suiteReport;
+      }
+    } else {
+      const aggregateReport = await this.findAggregateReportFromLatest(
+        directories.outputDir
+      );
+      if (aggregateReport) {
+        return aggregateReport;
+      }
     }
 
-    for (const htmlPath of possiblePaths) {
+    if (suiteName && targets.size > 0) {
+      for (const dir of directories.searchDirs) {
+        const suiteReport = await this.findSuiteReportInDirectory(dir, targets, suiteName);
+        if (suiteReport) {
+          return suiteReport;
+        }
+      }
+    }
+
+    for (const dir of directories.searchDirs) {
+      const aggregateReport = await this.findAggregateReportInDirectory(dir);
+      if (aggregateReport) {
+        return aggregateReport;
+      }
+    }
+
+    return this.searchWorkspaceFallback(workspacePath, suiteName, directories, targets);
+  }
+
+  private async resolveReportDirectories(workspacePath: string): Promise<ResolvedReportDirectories> {
+    let config: FlowTestConfig | null = null;
+    try {
+      config = await this.configService.getConfig(workspacePath);
+    } catch (error) {
+      console.warn('Failed to load Flow Test configuration for results lookup:', error);
+    }
+
+    const workingDir = config?.workingDirectory ?? workspacePath;
+    const reporting = config?.reporting;
+
+    const outputDirRaw = reporting?.outputDir ?? 'results';
+    const outputDir = path.normalize(
+      path.isAbsolute(outputDirRaw)
+        ? outputDirRaw
+        : path.resolve(workingDir, outputDirRaw)
+    );
+
+    const htmlSubdirRaw = reporting?.html?.outputSubdir ?? 'html';
+    const htmlDir = htmlSubdirRaw
+      ? path.normalize(
+          path.isAbsolute(htmlSubdirRaw)
+            ? htmlSubdirRaw
+            : path.resolve(outputDir, htmlSubdirRaw)
+        )
+      : outputDir;
+
+    const preferredDirs = [
+      htmlDir,
+      outputDir,
+      path.join(workspacePath, 'results', 'html'),
+      path.join(workspacePath, 'results'),
+      path.join(workspacePath, '.fest-runner'),
+      workspacePath
+    ];
+
+    const searchDirs = Array.from(
+      new Set(preferredDirs.map(dir => path.normalize(dir)))
+    );
+
+    return {
+      workingDir,
+      outputDir,
+      htmlDir,
+      searchDirs,
+      config
+    };
+  }
+
+  private buildSuiteLookupKeys(rawName: string): Set<string> {
+    const keys = new Set<string>();
+    if (!rawName) {
+      return keys;
+    }
+
+    const variants = new Set<string>();
+    const trimmed = rawName.trim();
+    if (trimmed) {
+      variants.add(trimmed);
+      variants.add(trimmed.toLowerCase());
+      variants.add(path.basename(trimmed));
+    }
+
+    const splitTokens = trimmed
+      .split(/[:/\\]/)
+      .map(part => part.trim())
+      .filter(Boolean);
+    splitTokens.forEach(token => variants.add(token));
+    variants.add(trimmed.replace(/_/g, ' '));
+
+    variants.forEach(value => {
+      const sanitized = this.sanitizeFileName(value);
+      if (sanitized) {
+        keys.add(sanitized);
+      }
+    });
+
+    return keys;
+  }
+
+  private sanitizeFileName(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  private async findSuiteReportFromLatest(
+    outputDir: string,
+    suiteName: string,
+    targets: Set<string>
+  ): Promise<string | null> {
+    const latestPath = path.join(outputDir, 'latest.json');
+    if (!(await this.fileExists(latestPath))) {
+      return null;
+    }
+
+    try {
+      const rawContent = await fs.promises.readFile(latestPath, 'utf8');
+      const parsed = JSON.parse(rawContent);
+      const assets: any[] = Array.isArray(parsed?.report_metadata?.assets)
+        ? parsed.report_metadata.assets
+        : [];
+
+      const rawComparisons = new Set<string>();
+      rawComparisons.add(suiteName.trim().toLowerCase());
+
+      for (const asset of assets) {
+        if (!asset || asset.scope !== 'suite') {
+          continue;
+        }
+
+        const candidateValues: string[] = [];
+        const suiteInfo = asset.suite ?? {};
+
+        if (asset.suite_name) {
+          candidateValues.push(String(asset.suite_name));
+        }
+        if (asset.node_id) {
+          candidateValues.push(String(asset.node_id));
+        }
+        if (suiteInfo.suite_name) {
+          candidateValues.push(String(suiteInfo.suite_name));
+        }
+        if (suiteInfo.node_id) {
+          candidateValues.push(String(suiteInfo.node_id));
+        }
+
+        const fileNameValue = asset.file_name ?? asset.file;
+        if (fileNameValue) {
+          candidateValues.push(String(fileNameValue));
+        }
+
+        const sanitizedMatch = candidateValues.some(value => {
+          const sanitized = this.sanitizeFileName(String(value));
+          return targets.has(sanitized);
+        });
+
+        const rawMatch = candidateValues.some(value =>
+          rawComparisons.has(String(value).trim().toLowerCase())
+        );
+
+        if (!sanitizedMatch && !rawMatch) {
+          continue;
+        }
+
+        const relativeFile: string | undefined = asset.file || asset.file_name || asset.relativePath;
+        if (!relativeFile) {
+          continue;
+        }
+
+        const resolvedPath = path.isAbsolute(relativeFile)
+          ? path.normalize(relativeFile)
+          : path.normalize(path.join(outputDir, relativeFile.replace(/\//g, path.sep)));
+
+        if (await this.fileExists(resolvedPath)) {
+          return resolvedPath;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to parse Flow Test latest report metadata:', error);
+    }
+
+    return null;
+  }
+
+  private async findAggregateReportFromLatest(outputDir: string): Promise<string | null> {
+    const latestPath = path.join(outputDir, 'latest.json');
+    if (!(await this.fileExists(latestPath))) {
+      return null;
+    }
+
+    try {
+      const rawContent = await fs.promises.readFile(latestPath, 'utf8');
+      const parsed = JSON.parse(rawContent);
+      const assets: any[] = Array.isArray(parsed?.report_metadata?.assets)
+        ? parsed.report_metadata.assets
+        : [];
+
+      for (const asset of assets) {
+        if (!asset || asset.scope !== 'aggregate') {
+          continue;
+        }
+
+        const relativeFile: string | undefined = asset.file || asset.file_name || asset.relativePath;
+        if (!relativeFile) {
+          continue;
+        }
+
+        const resolvedPath = path.isAbsolute(relativeFile)
+          ? path.normalize(relativeFile)
+          : path.normalize(path.join(outputDir, relativeFile.replace(/\//g, path.sep)));
+
+        if (await this.fileExists(resolvedPath)) {
+          return resolvedPath;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to read Flow Test report metadata for aggregate results:', error);
+    }
+
+    return null;
+  }
+
+  private async findSuiteReportInDirectory(
+    directory: string,
+    targets: Set<string>,
+    suiteName?: string
+  ): Promise<string | null> {
+    if (!(await this.directoryExists(directory))) {
+      return null;
+    }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    const matches: Array<{ filePath: string; weight: number; mtime: number }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.html')) {
+        continue;
+      }
+
+      const filePath = path.join(directory, entry.name);
+      if (this.isIrrelevantHtmlFile(filePath)) {
+        continue;
+      }
+
+      const baseName = path.basename(entry.name, path.extname(entry.name));
+      const sanitizedBase = this.sanitizeFileName(baseName);
+      const sanitizedMatch = targets.has(sanitizedBase);
+
+      let weight = sanitizedMatch ? 2 : 0;
+
+      if (!sanitizedMatch && suiteName) {
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf8');
+          const lowerContent = content.toLowerCase();
+          if (lowerContent.includes(suiteName.toLowerCase())) {
+            weight = 1;
+          } else if (this.isTestResultsHtml(content)) {
+            weight = 0.5;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      if (weight <= 0) {
+        continue;
+      }
+
       try {
-        await fs.promises.access(htmlPath, fs.constants.F_OK);
-        return htmlPath;
+        const stats = await fs.promises.stat(filePath);
+        matches.push({ filePath, weight, mtime: stats.mtimeMs });
       } catch {
         continue;
       }
     }
 
-    const files = await vscode.workspace.findFiles(
+    if (matches.length === 0) {
+      return null;
+    }
+
+    matches.sort((a, b) => {
+      if (b.weight === a.weight) {
+        return b.mtime - a.mtime;
+      }
+      return b.weight - a.weight;
+    });
+
+    return matches[0].filePath;
+  }
+
+  private async findAggregateReportInDirectory(directory: string): Promise<string | null> {
+    if (!(await this.directoryExists(directory))) {
+      return null;
+    }
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+
+    const matches: Array<{ filePath: string; priority: number; mtime: number }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.html')) {
+        continue;
+      }
+
+      const filePath = path.join(directory, entry.name);
+      if (this.isIrrelevantHtmlFile(filePath)) {
+        continue;
+      }
+
+      const normalized = entry.name.toLowerCase();
+      let priority = 1;
+      if (normalized.startsWith('index_')) {
+        priority = 3;
+      } else if (normalized.includes('summary')) {
+        priority = 2;
+      }
+
+      try {
+        const stats = await fs.promises.stat(filePath);
+        matches.push({ filePath, priority, mtime: stats.mtimeMs });
+      } catch {
+        continue;
+      }
+    }
+
+    if (matches.length === 0) {
+      return null;
+    }
+
+    matches.sort((a, b) => {
+      if (b.priority === a.priority) {
+        return b.mtime - a.mtime;
+      }
+      return b.priority - a.priority;
+    });
+
+    return matches[0].filePath;
+  }
+
+  private async searchWorkspaceFallback(
+    workspacePath: string,
+    suiteName: string | undefined,
+    directories: ResolvedReportDirectories,
+    targets: Set<string>
+  ): Promise<string | null> {
+    const candidatePaths = new Set<string>();
+
+    if (suiteName && targets.size > 0) {
+      targets.forEach(target => {
+        candidatePaths.add(path.join(directories.htmlDir, `${target}.html`));
+        candidatePaths.add(path.join(directories.htmlDir, `${target}_latest.html`));
+        candidatePaths.add(path.join(directories.htmlDir, `${target}-results.html`));
+        candidatePaths.add(path.join(directories.outputDir, `${target}.html`));
+        candidatePaths.add(path.join(directories.outputDir, `${target}_latest.html`));
+      });
+    }
+
+    candidatePaths.add(path.join(directories.htmlDir, 'index.html'));
+    candidatePaths.add(path.join(directories.outputDir, 'index.html'));
+    candidatePaths.add(path.join(directories.outputDir, 'latest.html'));
+    candidatePaths.add(path.join(workspacePath, 'test-results.html'));
+    candidatePaths.add(path.join(workspacePath, 'flow-test-results.html'));
+    candidatePaths.add(path.join(workspacePath, 'results', 'index.html'));
+    candidatePaths.add(path.join(workspacePath, '.fest-runner', 'results.html'));
+    candidatePaths.add(path.join(workspacePath, '.fest-runner', 'test-results.html'));
+
+    for (const candidate of candidatePaths) {
+      const normalizedCandidate = path.normalize(candidate);
+      if (
+        await this.fileExists(normalizedCandidate) &&
+        !this.isIrrelevantHtmlFile(normalizedCandidate)
+      ) {
+        return normalizedCandidate;
+      }
+    }
+
+    const processed = new Set<string>();
+
+    for (const dir of directories.searchDirs) {
+      if (!(await this.directoryExists(dir))) {
+        continue;
+      }
+
+      const key = path.normalize(dir);
+      if (processed.has(key)) {
+        continue;
+      }
+      processed.add(key);
+
+      const files = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(dir, '**/*.html'),
+        '**/node_modules/**'
+      );
+
+      const match = await this.pickFirstMatchingFile(files, targets, suiteName);
+      if (match) {
+        return match;
+      }
+    }
+
+    const workspaceFiles = await vscode.workspace.findFiles(
       new vscode.RelativePattern(workspacePath, '**/*.html'),
       '**/node_modules/**'
     );
+    return this.pickFirstMatchingFile(workspaceFiles, targets, suiteName);
+  }
 
+  private async pickFirstMatchingFile(
+    files: readonly vscode.Uri[],
+    targets: Set<string>,
+    suiteName?: string
+  ): Promise<string | null> {
     for (const file of files) {
-      const content = await fs.promises.readFile(file.fsPath, 'utf8');
-      if (this.isTestResultsHtml(content)) {
-        return file.fsPath;
+      const filePath = file.fsPath;
+      if (this.isIrrelevantHtmlFile(filePath)) {
+        continue;
+      }
+
+      const baseName = path.basename(filePath, path.extname(filePath));
+      const sanitizedBase = this.sanitizeFileName(baseName);
+
+      if (targets.size > 0 && targets.has(sanitizedBase)) {
+        return filePath;
+      }
+
+      try {
+        const content = await fs.promises.readFile(filePath, 'utf8');
+        if (suiteName) {
+          if (content.toLowerCase().includes(suiteName.toLowerCase())) {
+            return filePath;
+          }
+          if (targets.size > 0) {
+            continue;
+          }
+        }
+
+        if (this.isTestResultsHtml(content)) {
+          return filePath;
+        }
+      } catch {
+        continue;
       }
     }
 
     return null;
+  }
+
+  private async fileExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.promises.access(filePath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async directoryExists(directory: string): Promise<boolean> {
+    try {
+      const stats = await fs.promises.stat(directory);
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   private isTestResultsHtml(content: string): boolean {
@@ -83,6 +555,11 @@ export class HtmlResultsService {
 
     const lowerContent = content.toLowerCase();
     return testResultsIndicators.some(indicator => lowerContent.includes(indicator));
+  }
+
+  private isIrrelevantHtmlFile(filePath: string): boolean {
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    return normalized.includes('/coverage/') || normalized.includes('/lcov-report/');
   }
 
   private async displayHtmlResults(htmlPath: string, title: string): Promise<void> {

@@ -115,7 +115,7 @@
       "view/item/context": [
         {
           "command": "flow-test-runner.runTest",
-          "when": "view == flowTestExplorer && viewItem == test",
+          "when": "view == flowTestExplorer && viewItem == step-with-id",
           "group": "inline@1"
         },
         {
@@ -125,12 +125,12 @@
         },
         {
           "command": "flow-test-runner.viewResults",
-          "when": "view == flowTestExplorer && viewItem =~ /test|suite/",
+          "when": "view == flowTestExplorer && viewItem =~ /suite|step/",
           "group": "inline@2"
         },
         {
           "command": "flow-test-runner.openTest",
-          "when": "view == flowTestExplorer && viewItem =~ /test|suite/",
+          "when": "view == flowTestExplorer && viewItem =~ /suite|step/",
           "group": "inline@3"
         }
       ],

@@ -19,18 +19,94 @@ export class InputService {
 
     if (this.inputCache.has(cacheKey)) {
       const cachedValue = this.inputCache.get(cacheKey)!;
-      vscode.window.showInformationMessage(`Using cached input for ${request.inputName}: ${request.masked ? '***' : cachedValue}`);
+      vscode.window.showInformationMessage(
+        `Using cached input for ${request.inputName}: ${request.masked ? '***' : cachedValue}`
+      );
       return cachedValue;
     }
 
+    const type = (request.type || '').toLowerCase();
+
+    if (type === 'select' && request.options && request.options.length > 0) {
+      const items = request.options.map((option, index) => ({
+        label: option.label || String(option.value),
+        description: option.description,
+        detail:
+          option.value !== undefined && option.value !== null
+            ? String(option.value)
+            : undefined,
+        picked:
+          request.defaultValue !== undefined &&
+          String(option.value) === String(request.defaultValue),
+        value: option.value,
+        index
+      })) as Array<vscode.QuickPickItem & { value: unknown; index: number }>;
+
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: request.prompt,
+        ignoreFocusOut: true,
+        canPickMany: false
+      });
+
+      if (!picked) {
+        if (request.required) {
+          throw new Error(`Required input '${request.inputName}' was not provided`);
+        }
+        return undefined;
+      }
+
+      const value = String(picked.value ?? picked.label ?? picked.index + 1);
+      this.inputCache.set(cacheKey, value);
+      return value;
+    }
+
+    if (type === 'confirm') {
+      const confirmOptions = [
+        { label: 'Sim', value: 'y', picked: request.defaultValue === 'y' },
+        { label: 'Não', value: 'n', picked: request.defaultValue === 'n' }
+      ] as Array<vscode.QuickPickItem & { value: string }>;
+
+      const picked = await vscode.window.showQuickPick(confirmOptions, {
+        placeHolder: request.prompt,
+        ignoreFocusOut: true,
+        canPickMany: false
+      });
+
+      if (!picked) {
+        if (request.required) {
+          throw new Error(`Required input '${request.inputName}' was not provided`);
+        }
+        return undefined;
+      }
+
+      const value = picked.value;
+      this.inputCache.set(cacheKey, value);
+      return value;
+    }
+
+    const isNumber = type === 'number';
     const inputOptions: vscode.InputBoxOptions = {
       prompt: request.prompt,
-      placeHolder: `Enter value for ${request.inputName}`,
-      password: request.masked || false,
+      placeHolder: request.defaultValue
+        ? `${request.defaultValue}`
+        : `Enter value for ${request.inputName}`,
+      password: request.masked || type === 'password',
       ignoreFocusOut: true,
-      validateInput: request.required
-        ? (value: string) => value.trim() ? undefined : 'This field is required'
-        : undefined
+      value: request.defaultValue,
+      validateInput: (value: string) => {
+        if (!value) {
+          if (request.required && !request.defaultValue) {
+            return 'This field is required';
+          }
+          return undefined;
+        }
+
+        if (isNumber && isNaN(Number(value))) {
+          return 'Please enter a valid number';
+        }
+
+        return undefined;
+      }
     };
 
     const userInput = await vscode.window.showInputBox(inputOptions);
@@ -40,11 +116,11 @@ export class InputService {
       return userInput;
     }
 
-    if (request.required) {
+    if (request.required && !request.defaultValue) {
       throw new Error(`Required input '${request.inputName}' was not provided`);
     }
 
-    return undefined;
+    return request.defaultValue;
   }
 
   getCachedInput(stepName: string, inputName: string): string | undefined {

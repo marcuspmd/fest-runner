@@ -3,8 +3,27 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { TestResult, FlowTestConfig, TestExecutionState, UserInputRequest } from './models/types';
+import * as yaml from 'yaml';
 import { ConfigService } from './services/configService';
 import { InputService } from './services/inputService';
+
+interface NormalizedInputOption {
+  label: string;
+  value: string;
+  index: number;
+}
+
+interface NormalizedInputConfig {
+  stepKey: string;
+  stepLabel: string;
+  variable: string;
+  prompt: string;
+  type: string;
+  required: boolean;
+  masked: boolean;
+  defaultValue?: string;
+  options?: NormalizedInputOption[];
+}
 
 export class TestRunner {
   private runningProcesses: Map<string, ChildProcess> = new Map();
@@ -43,7 +62,7 @@ export class TestRunner {
     this.outputChannel.appendLine('='.repeat(50));
 
     try {
-      await this.executeTest(suitePath, cwd, relativePath, undefined, config);
+      await this.executeTest(suitePath, cwd, relativePath, undefined, undefined, config);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.outputChannel.appendLine(`Error: ${errorMessage}`);
@@ -51,7 +70,7 @@ export class TestRunner {
     }
   }
 
-  async runStep(suitePath: string, stepName: string): Promise<void> {
+  async runStep(suitePath: string, stepName: string, stepId: string): Promise<void> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(suitePath));
     if (!workspaceFolder) {
       vscode.window.showErrorMessage('No workspace folder found');
@@ -64,12 +83,13 @@ export class TestRunner {
 
     this.outputChannel.show();
     this.outputChannel.appendLine(`🎯 Running Flow Test Step: ${stepName} in ${relativePath}`);
+    this.outputChannel.appendLine(`🆔 Step ID: ${stepId}`);
     this.outputChannel.appendLine(`🔧 Using command: ${config.command}`);
     this.outputChannel.appendLine(`📄 Config file: ${config.configFile || 'default settings'}`);
     this.outputChannel.appendLine('='.repeat(50));
 
     try {
-      await this.executeTest(suitePath, cwd, relativePath, stepName, config);
+      await this.executeTest(suitePath, cwd, relativePath, stepName, stepId, config);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.outputChannel.appendLine(`Error: ${errorMessage}`);
@@ -78,7 +98,14 @@ export class TestRunner {
     }
   }
 
-  private async executeTest(suitePath: string, cwd: string, relativePath: string, stepName?: string, config?: FlowTestConfig): Promise<void> {
+  private async executeTest(
+    suitePath: string,
+    cwd: string,
+    relativePath: string,
+    stepName?: string,
+    stepId?: string,
+    config?: FlowTestConfig
+  ): Promise<void> {
     let finalConfig: FlowTestConfig;
     if (!config) {
       const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(suitePath));
@@ -90,15 +117,38 @@ export class TestRunner {
       finalConfig = config;
     }
 
+    let preparedInputs: { submissions: string[]; userInputs: Record<string, string> } = {
+      submissions: [],
+      userInputs: {}
+    };
+
+    try {
+      preparedInputs = await this.prepareInteractiveInputs(suitePath, stepId);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`❌ Failed to prepare test inputs: ${errorMessage}`);
+      vscode.window.showErrorMessage(`Falha ao coletar inputs necessários: ${errorMessage}`);
+      throw error;
+    }
+
     this.lastExecutionState = {
       suitePath,
       stepName,
+      stepId,
       config: finalConfig,
+      userInputs:
+        Object.keys(preparedInputs.userInputs).length > 0
+          ? preparedInputs.userInputs
+          : undefined,
       timestamp: Date.now()
     };
 
+    if (Object.keys(preparedInputs.userInputs).length > 0) {
+      this.outputChannel.appendLine(`🧩 Inputs coletados: ${Object.keys(preparedInputs.userInputs).length}`);
+    }
+
     return new Promise((resolve, reject) => {
-      const processKey = `${suitePath}-${stepName || 'all'}`;
+      const processKey = `${suitePath}-${stepId || stepName || 'all'}`;
 
       if (this.runningProcesses.has(processKey)) {
         vscode.window.showWarningMessage('Test is already running');
@@ -109,8 +159,8 @@ export class TestRunner {
       const liveEventsPath = this.prepareLiveEventsFile(cwd);
       args.push('--live-events', liveEventsPath);
 
-      if (stepName) {
-        args.push('--step', stepName);
+      if (stepId) {
+        args.push('--step', stepId);
       }
 
       if (finalConfig.outputFormat === 'html' || finalConfig.outputFormat === 'both') {
@@ -130,6 +180,12 @@ export class TestRunner {
       });
 
       this.runningProcesses.set(processKey, testProcess);
+
+      if (preparedInputs.submissions.length > 0) {
+        preparedInputs.submissions.forEach(submission => {
+          testProcess.stdin?.write(`${submission}\n`);
+        });
+      }
 
       let output = '';
       let errorOutput = '';
@@ -200,6 +256,208 @@ export class TestRunner {
         reject(error);
       });
     });
+  }
+
+  private normalizeStoredValue(config: NormalizedInputConfig, rawValue: string): string {
+    if (config.type === 'confirm') {
+      return rawValue === 'y' ? 'true' : 'false';
+    }
+
+    return rawValue;
+  }
+
+  private toSubmissionValue(
+    config: NormalizedInputConfig,
+    rawValue: string,
+    isDefault: boolean = false
+  ): string {
+    switch (config.type) {
+      case 'select':
+        if (config.options && config.options.length > 0) {
+          const matched = config.options.find(option => option.value === rawValue);
+          if (matched) {
+            return String(matched.index + 1);
+          }
+
+          const numericIndex = parseInt(rawValue, 10);
+          if (!Number.isNaN(numericIndex) && config.options[numericIndex - 1]) {
+            return String(numericIndex);
+          }
+
+          return isDefault ? String(config.options[0].index + 1) : '1';
+        }
+        return rawValue;
+      case 'confirm':
+        if (rawValue === 'y' || rawValue === 'n') {
+          return rawValue;
+        }
+        return rawValue.toLowerCase().startsWith('y') ? 'y' : 'n';
+      default:
+        return rawValue ?? '';
+    }
+  }
+
+  private normalizeStepInputs(step: any, suitePath: string): NormalizedInputConfig[] {
+    if (!step || !step.input) {
+      return [];
+    }
+
+    const rawInputs = Array.isArray(step.input) ? step.input : [step.input];
+
+    return rawInputs.map((rawInput: any, index: number) => {
+      const variable = String(rawInput?.variable ?? rawInput?.name ?? `input_${index + 1}`);
+      const type = String(
+        rawInput?.type ?? (rawInput?.masked ? 'password' : 'text')
+      ).toLowerCase();
+      const required = rawInput?.required !== false;
+      const masked = rawInput?.masked === true || type === 'password';
+      const prompt = String(
+        rawInput?.prompt ??
+          rawInput?.label ??
+          `Informe o valor para ${variable}`
+      );
+
+      const defaultValueRaw =
+        rawInput?.default ?? rawInput?.default_value ?? rawInput?.ci_default;
+      let defaultValue: string | undefined;
+      if (defaultValueRaw !== undefined && defaultValueRaw !== null) {
+        if (type === 'confirm') {
+          defaultValue = defaultValueRaw ? 'y' : 'n';
+        } else {
+          defaultValue = String(defaultValueRaw);
+        }
+      }
+
+      let options: NormalizedInputOption[] | undefined;
+      if (Array.isArray(rawInput?.options)) {
+        options = rawInput.options.map((option: any, optionIndex: number) => {
+          if (typeof option === 'string') {
+            return {
+              label: option,
+              value: option,
+              index: optionIndex
+            };
+          }
+
+          const optionLabel =
+            option.label ??
+            option.text ??
+            option.name ??
+            option.value ??
+            `Opção ${optionIndex + 1}`;
+          const optionValue = option.value ?? optionLabel;
+
+          return {
+            label: String(optionLabel),
+            value: String(optionValue),
+            index: optionIndex
+          };
+        });
+      }
+
+      return {
+        stepKey: `${path.basename(suitePath)}::${step.step_id ?? step.name ?? `step-${index + 1}`}`,
+        stepLabel: String(step.name ?? step.step_id ?? `Step ${index + 1}`),
+        variable,
+        prompt,
+        type,
+        required,
+        masked,
+        defaultValue,
+        options
+      };
+    });
+  }
+
+  private async prepareInteractiveInputs(
+    suitePath: string,
+    stepId?: string
+  ): Promise<{ submissions: string[]; userInputs: Record<string, string> }> {
+    let suiteContent: string;
+    try {
+      suiteContent = await fs.promises.readFile(suitePath, 'utf8');
+    } catch (error) {
+      throw new Error(`Não foi possível ler o arquivo do teste (${suitePath})`);
+    }
+
+    let parsed: any;
+    try {
+      parsed = yaml.parse(suiteContent);
+    } catch (error) {
+      throw new Error('Falha ao interpretar o arquivo YAML do teste');
+    }
+
+    const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
+    if (steps.length === 0) {
+      return { submissions: [], userInputs: {} };
+    }
+
+    const relevantSteps = stepId
+      ? steps.filter((step: any) => step.step_id === stepId || step.name === stepId)
+      : steps;
+
+    if (relevantSteps.length === 0) {
+      return { submissions: [], userInputs: {} };
+    }
+
+    const submissions: string[] = [];
+    const userInputs: Record<string, string> = {};
+
+    for (const step of relevantSteps) {
+      const inputs = this.normalizeStepInputs(step, suitePath);
+      for (const input of inputs) {
+        const request: UserInputRequest = {
+          stepName: input.stepKey,
+          inputName: input.variable,
+          prompt: `${input.prompt} (Step: ${input.stepLabel})`,
+          required: input.required,
+          masked: input.masked,
+          type: input.type,
+          options: input.options?.map(option => ({
+            label: option.label,
+            value: option.value
+          })),
+          defaultValue: input.defaultValue
+        };
+
+        const rawValue = await this.handleInteractiveInput(request);
+
+        if (rawValue === undefined) {
+          if (input.defaultValue !== undefined) {
+            userInputs[input.variable] = this.normalizeStoredValue(
+              input,
+              input.defaultValue
+            );
+            submissions.push(
+              this.toSubmissionValue(input, input.defaultValue, true)
+            );
+            continue;
+          }
+
+          if (!input.required) {
+            if (input.type === 'select' && input.options && input.options.length > 0) {
+              throw new Error(`Selecione um valor para '${input.variable}' para continuar a execução.`);
+            }
+
+            if (input.type === 'confirm') {
+              userInputs[input.variable] = this.normalizeStoredValue(input, 'n');
+              submissions.push('');
+            } else {
+              userInputs[input.variable] = '';
+              submissions.push('');
+            }
+            continue;
+          }
+
+          throw new Error(`Input obrigatório cancelado: ${input.variable}`);
+        }
+
+        userInputs[input.variable] = this.normalizeStoredValue(input, rawValue);
+        submissions.push(this.toSubmissionValue(input, rawValue));
+      }
+    }
+
+    return { submissions, userInputs };
   }
 
   private prepareLiveEventsFile(cwd: string): string {
@@ -297,13 +555,16 @@ export class TestRunner {
       return;
     }
 
-    const { suitePath, stepName, config, userInputs } = this.lastExecutionState;
+    const { suitePath, stepName, stepId, config, userInputs } = this.lastExecutionState;
 
     this.outputChannel.show();
     this.outputChannel.appendLine('🔄 Retesting with previous configuration');
     this.outputChannel.appendLine(`📦 Suite: ${path.basename(suitePath)}`);
     if (stepName) {
       this.outputChannel.appendLine(`🎯 Step: ${stepName}`);
+      if (stepId) {
+        this.outputChannel.appendLine(`🆔 Step ID: ${stepId}`);
+      }
     }
     this.outputChannel.appendLine(`🔧 Command: ${config.command}`);
     this.outputChannel.appendLine(`📄 Config file: ${config.configFile || 'default settings'}`);
@@ -314,8 +575,12 @@ export class TestRunner {
     this.outputChannel.appendLine('='.repeat(50));
 
     try {
-      if (stepName) {
-        await this.runStep(suitePath, stepName);
+    if (stepName) {
+      if (!stepId) {
+        vscode.window.showWarningMessage('Não foi possível repetir a execução do step porque o step_id não está disponível.');
+        return;
+      }
+      await this.runStep(suitePath, stepName, stepId);
       } else {
         await this.runSuite(suitePath);
       }
@@ -330,21 +595,14 @@ export class TestRunner {
     return this.lastExecutionState;
   }
 
-  async handleInteractiveInput(stepName: string, inputName: string, prompt: string, required: boolean = true, masked: boolean = false): Promise<string | undefined> {
-    const request: UserInputRequest = {
-      stepName,
-      inputName,
-      prompt,
-      required,
-      masked
-    };
-
+  async handleInteractiveInput(request: UserInputRequest): Promise<string | undefined> {
     this._onUserInputRequired.fire(request);
 
     try {
       return await this.inputService.handleUserInput(request);
     } catch (error) {
-      this.outputChannel.appendLine(`❌ Input error: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`❌ Input error (${request.inputName}): ${errorMessage}`);
       throw error;
     }
   }

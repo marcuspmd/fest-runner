@@ -33,7 +33,15 @@ export class ConfigService {
       outputFormat: 'both',
       timeout: 30000,
       retryCount: 0,
-      workingDirectory: workspacePath
+      workingDirectory: workspacePath,
+      reporting: {
+        outputDir: 'results',
+        html: {
+          outputSubdir: 'html',
+          perSuite: true,
+          aggregate: true
+        }
+      }
     };
 
     const configFromSettings = this.loadFromVSCodeSettings();
@@ -53,11 +61,38 @@ export class ConfigService {
       }
     }
 
-    return {
+    const mergedConfig: FlowTestConfig = {
       ...defaultConfig,
       ...configFromSettings,
       ...fileConfig
     };
+
+    const reportingLayers = [
+      defaultConfig.reporting,
+      configFromSettings.reporting,
+      fileConfig.reporting
+    ].filter(Boolean) as NonNullable<FlowTestConfig['reporting']>[];
+
+    if (reportingLayers.length > 0) {
+      const mergedReporting: NonNullable<FlowTestConfig['reporting']> = {};
+
+      for (const layer of reportingLayers) {
+        if (layer.outputDir) {
+          mergedReporting.outputDir = layer.outputDir;
+        }
+
+        if (layer.html) {
+          mergedReporting.html = {
+            ...mergedReporting.html,
+            ...layer.html
+          };
+        }
+      }
+
+      mergedConfig.reporting = mergedReporting;
+    }
+
+    return mergedConfig;
   }
 
   private async findConfigFile(workspacePath: string): Promise<string | null> {
@@ -120,6 +155,50 @@ export class ConfigService {
         ? config.workingDirectory
         : path.join(path.dirname(configPath), config.workingDirectory);
       validatedConfig.workingDirectory = workingDir;
+    } else if (config.working_directory && typeof config.working_directory === 'string') {
+      const workingDir = path.isAbsolute(config.working_directory)
+        ? config.working_directory
+        : path.join(path.dirname(configPath), config.working_directory);
+      validatedConfig.workingDirectory = workingDir;
+    }
+
+    if (config.reporting && typeof config.reporting === 'object') {
+      const reportingSource = config.reporting;
+      const reportingConfig: NonNullable<FlowTestConfig['reporting']> = {};
+
+      const outputDirValue = reportingSource.outputDir ?? reportingSource.output_dir;
+      if (typeof outputDirValue === 'string' && outputDirValue.trim().length > 0) {
+        reportingConfig.outputDir = outputDirValue.trim();
+      }
+
+      if (reportingSource.html && typeof reportingSource.html === 'object') {
+        const htmlSource = reportingSource.html;
+        const htmlConfig: NonNullable<NonNullable<FlowTestConfig['reporting']>['html']> = {};
+
+        const outputSubdirValue =
+          htmlSource.outputSubdir ?? htmlSource.output_subdir;
+        if (typeof outputSubdirValue === 'string' && outputSubdirValue.trim().length > 0) {
+          htmlConfig.outputSubdir = outputSubdirValue.trim();
+        }
+
+        if (typeof htmlSource.perSuite === 'boolean') {
+          htmlConfig.perSuite = htmlSource.perSuite;
+        } else if (typeof htmlSource.per_suite === 'boolean') {
+          htmlConfig.perSuite = htmlSource.per_suite;
+        }
+
+        if (typeof htmlSource.aggregate === 'boolean') {
+          htmlConfig.aggregate = htmlSource.aggregate;
+        }
+
+        if (Object.keys(htmlConfig).length > 0) {
+          reportingConfig.html = htmlConfig;
+        }
+      }
+
+      if (Object.keys(reportingConfig).length > 0) {
+        validatedConfig.reporting = reportingConfig;
+      }
     }
 
     return validatedConfig;
@@ -140,6 +219,17 @@ retryCount: 0
 
 # Optional: Custom working directory (relative to config file)
 # workingDirectory: ./tests
+
+# Reporting configuration (matches Flow Test Engine defaults)
+reporting:
+  output_dir: ./results
+  formats:
+    - json
+    - html
+  html:
+    output_subdir: html
+    per_suite: true
+    aggregate: true
 
 # Examples of other configuration options:
 # command: ./custom-flow-test-binary
