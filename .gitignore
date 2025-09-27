@@ -45,4 +45,7 @@ parcel-cache/
 .svelte-kit/
 .claude/
 
+# VSIX packages
+*.vsix
+
 # Lock files: keep package-lock.json / yarn.lock in repo (do not ignore)

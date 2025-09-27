@@ -2,11 +2,15 @@ import * as vscode from 'vscode';
 import { FlowTestProvider } from './testProvider';
 import { TestScanner } from './testScanner';
 import { TestRunner } from './testRunner';
+import { ConfigService } from './services/configService';
+import { HtmlResultsService } from './services/htmlResultsService';
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
   const testRunner = new TestRunner();
   const testProvider = new FlowTestProvider(testScanner, testRunner);
+  const configService = ConfigService.getInstance();
+  const htmlResultsService = HtmlResultsService.getInstance();
 
   vscode.window.registerTreeDataProvider('flowTestExplorer', testProvider);
 
@@ -31,13 +35,55 @@ export function activate(context: vscode.ExtensionContext) {
       if (item) {
         testProvider.openTestFile(item);
       }
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.retest', async () => {
+      await testRunner.retestLast();
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.viewResults', async (item) => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+      }
+
+      const suiteName = item?.suite?.name || item?.label;
+      await htmlResultsService.showResults(workspaceFolder.uri.fsPath, suiteName);
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.createConfig', async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+      }
+
+      await configService.createDefaultConfigFile(workspaceFolder.uri.fsPath);
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.selectConfig', async () => {
+      await configService.promptForConfigFile();
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.clearInputCache', async () => {
+      await testRunner.clearInputCache();
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.showCachedInputs', async () => {
+      await testRunner.showCachedInputs();
+    }),
+
+    vscode.commands.registerCommand('flow-test-runner.editCachedInput', async () => {
+      await testRunner.editCachedInput();
     })
   ];
 
   context.subscriptions.push(
     ...commands,
     testScanner,
-    testRunner
+    testRunner,
+    htmlResultsService
   );
 
   checkForFlowTests();

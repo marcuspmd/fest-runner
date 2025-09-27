@@ -53,8 +53,8 @@ steps:
 # Instalar dependências
 npm install
 
-# Compilar
-npm run compile
+# Compilar (typecheck + bundle)
+npm run build
 
 # Executar em modo watch
 npm run watch

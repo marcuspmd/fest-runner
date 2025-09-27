@@ -1,0 +1,12 @@
+.vscode/**
+src/**
+out/**
+node_modules/**
+!node_modules/yaml/**
+**/*.ts
+**/*.tsx
+*.tsbuildinfo
+tsconfig.json
+README.dev.md
+.vscode-test/**
+.eslintrc*

@@ -1,0 +1,5 @@
+# Test configuration file
+command: flow-test-engine
+outputFormat: both
+timeout: 30000
+retryCount: 0

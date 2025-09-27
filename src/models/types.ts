@@ -33,3 +33,28 @@ export interface TestResult {
 }
 
 export type TestStatus = 'pending' | 'running' | 'passed' | 'failed';
+
+export interface FlowTestConfig {
+  configFile?: string;
+  command: string;
+  outputFormat: 'json' | 'html' | 'both';
+  timeout: number;
+  retryCount: number;
+  workingDirectory?: string;
+}
+
+export interface TestExecutionState {
+  suitePath: string;
+  stepName?: string;
+  config: FlowTestConfig;
+  userInputs?: Record<string, string>;
+  timestamp: number;
+}
+
+export interface UserInputRequest {
+  stepName: string;
+  inputName: string;
+  prompt: string;
+  required: boolean;
+  masked?: boolean;
+}
