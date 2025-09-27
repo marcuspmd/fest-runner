@@ -4,6 +4,11 @@
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
   "version": "0.1.0",
   "publisher": "marcuspmd",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marcuspmd/fest-runner"
+  },
+  "license": "MIT",
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.75.0"
