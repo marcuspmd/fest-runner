@@ -10,15 +10,23 @@ export interface FlowTestSuite {
   steps: FlowTestStep[];
 }
 
+export interface FlowTestCallConfig {
+  test: string;
+  step?: string;
+  isolate_context?: boolean;
+  on_error?: string;
+}
+
 export interface FlowTestStep {
   name: string;
   step_id?: string;
-  request: {
+  request?: {
     method: string;
     url: string;
     headers?: Record<string, string>;
     body?: any;
   };
+  call?: FlowTestCallConfig;
   assert?: {
     status_code?: number;
     body?: Record<string, any>;
@@ -26,15 +34,24 @@ export interface FlowTestStep {
   input?: any;
 }
 
+export type FlowTestGraphDirection = "TD" | "LR" | "BT" | "RL";
+
+export interface FlowTestGraphConfig {
+  command?: string;
+  defaultDirection?: FlowTestGraphDirection;
+  defaultOutput?: string;
+  noOrphans?: boolean;
+}
+
 export interface TestResult {
   suite: string;
   step: string;
-  status: 'passed' | 'failed' | 'running' | 'pending';
+  status: "passed" | "failed" | "running" | "pending";
   error?: string;
   duration?: number;
 }
 
-export type TestStatus = 'pending' | 'running' | 'passed' | 'failed';
+export type TestStatus = "pending" | "running" | "passed" | "failed";
 
 export interface SuiteResult {
   suite: string;
@@ -45,7 +62,7 @@ export interface SuiteResult {
 export interface FlowTestConfig {
   configFile?: string;
   command: string;
-  outputFormat: 'json' | 'html' | 'both';
+  outputFormat: "json" | "html" | "both";
   timeout: number;
   retryCount: number;
   workingDirectory?: string;
@@ -55,6 +72,7 @@ export interface FlowTestConfig {
     exclude?: string[];
   };
   interactiveInputs?: boolean;
+  graph?: FlowTestGraphConfig;
   reporting?: {
     outputDir?: string;
     html?: {

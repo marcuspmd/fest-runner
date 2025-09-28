@@ -1,8 +1,12 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as yaml from 'yaml';
-import { FlowTestConfig } from '../models/types';
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "yaml";
+import {
+  FlowTestConfig,
+  FlowTestGraphConfig,
+  FlowTestGraphDirection,
+} from "../models/types";
 
 export class ConfigService {
   private static instance: ConfigService;
@@ -32,25 +36,31 @@ export class ConfigService {
 
   private async loadConfig(workspacePath: string): Promise<FlowTestConfig> {
     const defaultConfig: FlowTestConfig = {
-      command: 'flow-test-engine',
-      outputFormat: 'both',
+      command: "flow-test-engine",
+      outputFormat: "both",
       timeout: 30000,
       retryCount: 0,
       workingDirectory: workspacePath,
       testDirectories: [workspacePath],
       discovery: {
-        patterns: ['**/*.yml', '**/*.yaml'],
-        exclude: ['**/node_modules/**']
+        patterns: ["**/*.yml", "**/*.yaml"],
+        exclude: ["**/node_modules/**"],
       },
       interactiveInputs: true,
+      graph: {
+        command: "flow-test-engine",
+        defaultDirection: "TD",
+        defaultOutput: "flow-discovery.mmd",
+        noOrphans: false,
+      },
       reporting: {
-        outputDir: 'results',
+        outputDir: "results",
         html: {
-          outputSubdir: 'html',
+          outputSubdir: "html",
           perSuite: true,
-          aggregate: true
-        }
-      }
+          aggregate: true,
+        },
+      },
     };
 
     const configFromSettings = this.loadFromVSCodeSettings();
@@ -59,13 +69,21 @@ export class ConfigService {
     const configFilePath = await this.findConfigFile(workspacePath);
     if (configFilePath) {
       try {
-        const configContent = await fs.promises.readFile(configFilePath, 'utf8');
+        const configContent = await fs.promises.readFile(
+          configFilePath,
+          "utf8"
+        );
         const parsedConfig = yaml.parse(configContent);
-        fileConfig = this.validateAndTransformConfig(parsedConfig, configFilePath);
+        fileConfig = this.validateAndTransformConfig(
+          parsedConfig,
+          configFilePath
+        );
         fileConfig.configFile = path.normalize(configFilePath);
       } catch (error) {
         vscode.window.showWarningMessage(
-          `Failed to load config file ${configFilePath}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to load config file ${configFilePath}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
         );
       }
     }
@@ -73,17 +91,17 @@ export class ConfigService {
     const mergedConfig: FlowTestConfig = {
       ...defaultConfig,
       ...configFromSettings,
-      ...fileConfig
+      ...fileConfig,
     };
 
     const reportingLayers = [
       defaultConfig.reporting,
       configFromSettings.reporting,
-      fileConfig.reporting
-    ].filter(Boolean) as NonNullable<FlowTestConfig['reporting']>[];
+      fileConfig.reporting,
+    ].filter(Boolean) as NonNullable<FlowTestConfig["reporting"]>[];
 
     if (reportingLayers.length > 0) {
-      const mergedReporting: NonNullable<FlowTestConfig['reporting']> = {};
+      const mergedReporting: NonNullable<FlowTestConfig["reporting"]> = {};
 
       for (const layer of reportingLayers) {
         if (layer.outputDir) {
@@ -93,12 +111,23 @@ export class ConfigService {
         if (layer.html) {
           mergedReporting.html = {
             ...mergedReporting.html,
-            ...layer.html
+            ...layer.html,
           };
         }
       }
 
       mergedConfig.reporting = mergedReporting;
+    }
+
+    const graphLayers = [
+      defaultConfig.graph,
+      configFromSettings.graph,
+      fileConfig.graph,
+    ];
+
+    const mergedGraph = this.mergeGraphConfigs(graphLayers);
+    if (mergedGraph) {
+      mergedConfig.graph = mergedGraph;
     }
 
     mergedConfig.testDirectories = this.normalizeDirectories(
@@ -115,7 +144,9 @@ export class ConfigService {
   }
 
   private async findConfigFile(workspacePath: string): Promise<string | null> {
-    const customConfigPath = vscode.workspace.getConfiguration('flowTestRunner').get<string>('configFile');
+    const customConfigPath = vscode.workspace
+      .getConfiguration("flowTestRunner")
+      .get<string>("configFile");
 
     if (customConfigPath) {
       const absolutePath = path.isAbsolute(customConfigPath)
@@ -126,11 +157,13 @@ export class ConfigService {
         await fs.promises.access(absolutePath, fs.constants.F_OK);
         return absolutePath;
       } catch {
-        vscode.window.showWarningMessage(`Custom config file not found: ${absolutePath}`);
+        vscode.window.showWarningMessage(
+          `Custom config file not found: ${absolutePath}`
+        );
       }
     }
 
-    const defaultConfigPath = path.join(workspacePath, 'flow-test.config.yml');
+    const defaultConfigPath = path.join(workspacePath, "flow-test.config.yml");
     try {
       await fs.promises.access(defaultConfigPath, fs.constants.F_OK);
       return defaultConfigPath;
@@ -140,41 +173,88 @@ export class ConfigService {
   }
 
   private loadFromVSCodeSettings(): Partial<FlowTestConfig> {
-    const config = vscode.workspace.getConfiguration('flowTestRunner');
+    const config = vscode.workspace.getConfiguration("flowTestRunner");
 
-    return {
-      command: config.get<string>('command'),
-      outputFormat: config.get<'json' | 'html' | 'both'>('outputFormat'),
-      timeout: config.get<number>('timeout'),
-      retryCount: config.get<number>('retryCount')
+    const partialConfig: Partial<FlowTestConfig> = {
+      command: config.get<string>("command"),
+      outputFormat: config.get<"json" | "html" | "both">("outputFormat"),
+      timeout: config.get<number>("timeout"),
+      retryCount: config.get<number>("retryCount"),
     };
+
+    const graphConfig: FlowTestGraphConfig = {};
+    const graphCommand = config.get<string>("graphCommand");
+    if (graphCommand && graphCommand.trim().length > 0) {
+      graphConfig.command = graphCommand.trim();
+    }
+
+    const graphDirection = config.get<FlowTestGraphDirection>("graphDirection");
+    if (graphDirection && this.isValidGraphDirection(graphDirection)) {
+      graphConfig.defaultDirection = graphDirection;
+    }
+
+    const graphOutput = config.get<string>("graphOutput");
+    if (graphOutput && graphOutput.trim().length > 0) {
+      graphConfig.defaultOutput = graphOutput.trim();
+    }
+
+    const graphNoOrphans = config.get<boolean>("graphNoOrphans");
+    if (typeof graphNoOrphans === "boolean") {
+      graphConfig.noOrphans = graphNoOrphans;
+    }
+
+    if (Object.keys(graphConfig).length > 0) {
+      partialConfig.graph = graphConfig;
+    }
+
+    return partialConfig;
   }
 
-  private validateAndTransformConfig(config: any, configPath: string): Partial<FlowTestConfig> {
+  private validateAndTransformConfig(
+    config: any,
+    configPath: string
+  ): Partial<FlowTestConfig> {
     const validatedConfig: Partial<FlowTestConfig> = {};
 
-    if (config.command && typeof config.command === 'string') {
+    if (config.command && typeof config.command === "string") {
       validatedConfig.command = config.command;
     }
 
-    if (config.outputFormat && ['json', 'html', 'both'].includes(config.outputFormat)) {
+    if (
+      config.outputFormat &&
+      ["json", "html", "both"].includes(config.outputFormat)
+    ) {
       validatedConfig.outputFormat = config.outputFormat;
     }
 
-    if (config.timeout && typeof config.timeout === 'number' && config.timeout > 0) {
+    if (
+      config.timeout &&
+      typeof config.timeout === "number" &&
+      config.timeout > 0
+    ) {
       validatedConfig.timeout = config.timeout;
     }
 
-    if (config.retryCount && typeof config.retryCount === 'number' && config.retryCount >= 0) {
+    if (
+      config.retryCount &&
+      typeof config.retryCount === "number" &&
+      config.retryCount >= 0
+    ) {
       validatedConfig.retryCount = config.retryCount;
     }
 
-    if (config.workingDirectory && typeof config.workingDirectory === 'string') {
+    if (
+      config.workingDirectory &&
+      typeof config.workingDirectory === "string"
+    ) {
       const workingDir = path.isAbsolute(config.workingDirectory)
         ? config.workingDirectory
         : path.join(path.dirname(configPath), config.workingDirectory);
       validatedConfig.workingDirectory = workingDir;
-    } else if (config.working_directory && typeof config.working_directory === 'string') {
+    } else if (
+      config.working_directory &&
+      typeof config.working_directory === "string"
+    ) {
       const workingDir = path.isAbsolute(config.working_directory)
         ? config.working_directory
         : path.join(path.dirname(configPath), config.working_directory);
@@ -197,45 +277,58 @@ export class ConfigService {
       }
     }
 
-    if (config.discovery && typeof config.discovery === 'object') {
-      const normalizedDiscovery = this.normalizeDiscoveryInput(config.discovery);
+    if (config.discovery && typeof config.discovery === "object") {
+      const normalizedDiscovery = this.normalizeDiscoveryInput(
+        config.discovery
+      );
       if (normalizedDiscovery) {
         validatedConfig.discovery = normalizedDiscovery;
       }
     }
 
     const interactiveSource =
-      config.interactiveInputs ?? config.interactive_inputs ?? config.interactive;
-    if (typeof interactiveSource === 'boolean') {
+      config.interactiveInputs ??
+      config.interactive_inputs ??
+      config.interactive;
+    if (typeof interactiveSource === "boolean") {
       validatedConfig.interactiveInputs = interactiveSource;
     }
 
-    if (config.reporting && typeof config.reporting === 'object') {
+    if (config.reporting && typeof config.reporting === "object") {
       const reportingSource = config.reporting;
-      const reportingConfig: NonNullable<FlowTestConfig['reporting']> = {};
+      const reportingConfig: NonNullable<FlowTestConfig["reporting"]> = {};
 
-      const outputDirValue = reportingSource.outputDir ?? reportingSource.output_dir;
-      if (typeof outputDirValue === 'string' && outputDirValue.trim().length > 0) {
+      const outputDirValue =
+        reportingSource.outputDir ?? reportingSource.output_dir;
+      if (
+        typeof outputDirValue === "string" &&
+        outputDirValue.trim().length > 0
+      ) {
         reportingConfig.outputDir = outputDirValue.trim();
       }
 
-      if (reportingSource.html && typeof reportingSource.html === 'object') {
+      if (reportingSource.html && typeof reportingSource.html === "object") {
         const htmlSource = reportingSource.html;
-        const htmlConfig: NonNullable<NonNullable<FlowTestConfig['reporting']>['html']> = {};
+        const htmlConfig: NonNullable<
+          NonNullable<FlowTestConfig["reporting"]>["html"]
+        > = {};
 
         const outputSubdirValue =
           htmlSource.outputSubdir ?? htmlSource.output_subdir;
-        if (typeof outputSubdirValue === 'string' && outputSubdirValue.trim().length > 0) {
+        if (
+          typeof outputSubdirValue === "string" &&
+          outputSubdirValue.trim().length > 0
+        ) {
           htmlConfig.outputSubdir = outputSubdirValue.trim();
         }
 
-        if (typeof htmlSource.perSuite === 'boolean') {
+        if (typeof htmlSource.perSuite === "boolean") {
           htmlConfig.perSuite = htmlSource.perSuite;
-        } else if (typeof htmlSource.per_suite === 'boolean') {
+        } else if (typeof htmlSource.per_suite === "boolean") {
           htmlConfig.perSuite = htmlSource.per_suite;
         }
 
-        if (typeof htmlSource.aggregate === 'boolean') {
+        if (typeof htmlSource.aggregate === "boolean") {
           htmlConfig.aggregate = htmlSource.aggregate;
         }
 
@@ -249,33 +342,86 @@ export class ConfigService {
       }
     }
 
+    const graphLayers: FlowTestGraphConfig[] = [];
+
+    if (config.graph && typeof config.graph === "object") {
+      const graphConfig = this.normalizeGraphInput(config.graph);
+      if (graphConfig) {
+        graphLayers.push(graphConfig);
+      }
+    }
+
+    const legacyGraph = this.normalizeGraphInput({
+      command:
+        config.graphCommand ??
+        config.graph_command ??
+        config.graphCmd ??
+        config.graph_cmd,
+      defaultDirection:
+        config.graphDirection ??
+        config.graph_direction ??
+        config.direction ??
+        config.graphDir ??
+        config.graph_dir,
+      defaultOutput:
+        config.graphOutput ??
+        config.graph_output ??
+        config.graphDefaultOutput ??
+        config.graph_default_output,
+      noOrphans:
+        config.graphNoOrphans ??
+        config.graph_no_orphans ??
+        config.noOrphans ??
+        config.no_orphans,
+    });
+
+    if (legacyGraph) {
+      graphLayers.push(legacyGraph);
+    }
+
+    if (graphLayers.length > 0) {
+      const mergedGraph = this.mergeGraphConfigs(graphLayers);
+      if (mergedGraph) {
+        validatedConfig.graph = mergedGraph;
+      }
+    }
+
     return validatedConfig;
   }
 
-  private normalizeTestDirectoryInput(value: unknown, baseDir: string): string[] {
+  private normalizeTestDirectoryInput(
+    value: unknown,
+    baseDir: string
+  ): string[] {
     const directories = this.toStringArray(value);
     if (directories.length === 0) {
       return [];
     }
 
-    const normalized = directories.map(dir => this.resolveRelativePath(baseDir, dir));
+    const normalized = directories.map((dir) =>
+      this.resolveRelativePath(baseDir, dir)
+    );
     return this.dedupeStrings(normalized);
   }
 
-  private normalizeDiscoveryInput(value: any): FlowTestConfig['discovery'] | undefined {
-    if (!value || typeof value !== 'object') {
+  private normalizeDiscoveryInput(
+    value: any
+  ): FlowTestConfig["discovery"] | undefined {
+    if (!value || typeof value !== "object") {
       return undefined;
     }
 
     const patterns = this.dedupeStrings(
-      this.toStringArray(value.patterns ?? value.pattern ?? value.include ?? value.includes)
+      this.toStringArray(
+        value.patterns ?? value.pattern ?? value.include ?? value.includes
+      )
     );
 
     const exclude = this.dedupeStrings(
       this.toStringArray(value.exclude ?? value.excludes)
     );
 
-    const discoveryConfig: NonNullable<FlowTestConfig['discovery']> = {};
+    const discoveryConfig: NonNullable<FlowTestConfig["discovery"]> = {};
 
     if (patterns.length > 0) {
       discoveryConfig.patterns = patterns;
@@ -285,7 +431,9 @@ export class ConfigService {
       discoveryConfig.exclude = exclude;
     }
 
-    return Object.keys(discoveryConfig).length > 0 ? discoveryConfig : undefined;
+    return Object.keys(discoveryConfig).length > 0
+      ? discoveryConfig
+      : undefined;
   }
 
   private normalizeDirectories(
@@ -294,27 +442,132 @@ export class ConfigService {
     configFile?: string
   ): string[] {
     const baseDir = configFile ? path.dirname(configFile) : workspacePath;
-    const source = directories && directories.length > 0 ? directories : [workspacePath];
-    const normalized = source.map(dir => this.resolveRelativePath(baseDir, dir));
+    const source =
+      directories && directories.length > 0 ? directories : [workspacePath];
+    const normalized = source.map((dir) =>
+      this.resolveRelativePath(baseDir, dir)
+    );
     return this.dedupeStrings(normalized);
   }
 
   private normalizeDiscoveryConfig(
-    discovery: FlowTestConfig['discovery'] | undefined
-  ): NonNullable<FlowTestConfig['discovery']> {
+    discovery: FlowTestConfig["discovery"] | undefined
+  ): NonNullable<FlowTestConfig["discovery"]> {
     const patterns = this.dedupeStrings(discovery?.patterns);
     const exclude = this.dedupeStrings(discovery?.exclude);
 
     const normalizedPatterns =
-      patterns.length > 0 ? patterns : ['**/*.yml', '**/*.yaml'];
+      patterns.length > 0 ? patterns : ["**/*.yml", "**/*.yaml"];
 
     const excludeSet = new Set<string>(exclude);
-    excludeSet.add('**/node_modules/**');
+    excludeSet.add("**/node_modules/**");
 
     return {
       patterns: normalizedPatterns,
-      exclude: Array.from(excludeSet)
+      exclude: Array.from(excludeSet),
     };
+  }
+
+  private normalizeGraphInput(value: any): FlowTestGraphConfig | undefined {
+    if (!value || typeof value !== "object") {
+      return undefined;
+    }
+
+    const graphConfig: FlowTestGraphConfig = {};
+
+    const commandCandidate = [value.command, value.cmd, value.executable].find(
+      (candidate) =>
+        typeof candidate === "string" && candidate.trim().length > 0
+    );
+    if (typeof commandCandidate === "string") {
+      graphConfig.command = commandCandidate.trim();
+    }
+
+    const directionCandidate = [
+      value.defaultDirection,
+      value.direction,
+      value.dir,
+    ].find(
+      (candidate) =>
+        typeof candidate === "string" && candidate.trim().length > 0
+    );
+
+    if (typeof directionCandidate === "string") {
+      const normalized = directionCandidate.trim().toUpperCase();
+      if (this.isValidGraphDirection(normalized)) {
+        graphConfig.defaultDirection = normalized as FlowTestGraphDirection;
+      }
+    }
+
+    const outputCandidate = [
+      value.defaultOutput,
+      value.output,
+      value.file,
+      value.path,
+      value.filename,
+    ].find(
+      (candidate) =>
+        typeof candidate === "string" && candidate.trim().length > 0
+    );
+
+    if (typeof outputCandidate === "string") {
+      graphConfig.defaultOutput = outputCandidate.trim();
+    }
+
+    const noOrphansCandidate =
+      value.noOrphans ??
+      value.no_orphans ??
+      value.disableOrphans ??
+      value.disable_orphans;
+
+    if (typeof noOrphansCandidate === "boolean") {
+      graphConfig.noOrphans = noOrphansCandidate;
+    }
+
+    return Object.keys(graphConfig).length > 0 ? graphConfig : undefined;
+  }
+
+  private mergeGraphConfigs(
+    configs: Array<FlowTestGraphConfig | undefined>
+  ): FlowTestGraphConfig | undefined {
+    const merged: FlowTestGraphConfig = {};
+
+    for (const config of configs) {
+      if (!config) {
+        continue;
+      }
+
+      if (typeof config.command === "string") {
+        merged.command = config.command;
+      }
+
+      if (config.defaultDirection) {
+        merged.defaultDirection = config.defaultDirection;
+      }
+
+      if (typeof config.defaultOutput === "string") {
+        merged.defaultOutput = config.defaultOutput;
+      }
+
+      if (typeof config.noOrphans === "boolean") {
+        merged.noOrphans = config.noOrphans;
+      }
+    }
+
+    return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  private isValidGraphDirection(
+    value: string
+  ): value is FlowTestGraphDirection {
+    if (!value) {
+      return false;
+    }
+
+    const normalized = value.trim().toUpperCase();
+    return (["TD", "LR", "BT", "RL"] as FlowTestGraphDirection[]).includes(
+      normalized as FlowTestGraphDirection
+    );
   }
 
   private toStringArray(value: unknown): string[] {
@@ -324,12 +577,12 @@ export class ConfigService {
 
     if (Array.isArray(value)) {
       return value
-        .filter((item): item is string => typeof item === 'string')
-        .map(item => item.trim())
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
         .filter(Boolean);
     }
 
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       const trimmed = value.trim();
       return trimmed ? [trimmed] : [];
     }
@@ -359,9 +612,10 @@ export class ConfigService {
   }
 
   private resolveRelativePath(baseDir: string, target: string): string {
-    const normalizedBase = baseDir && path.isAbsolute(baseDir)
-      ? baseDir
-      : path.resolve(baseDir || '.');
+    const normalizedBase =
+      baseDir && path.isAbsolute(baseDir)
+        ? baseDir
+        : path.resolve(baseDir || ".");
 
     const resolved = path.isAbsolute(target)
       ? target
@@ -370,7 +624,10 @@ export class ConfigService {
     return path.normalize(resolved);
   }
 
-  private updateConfigPathIndex(workspacePath: string, configFile?: string): void {
+  private updateConfigPathIndex(
+    workspacePath: string,
+    configFile?: string
+  ): void {
     const previousPath = this.workspaceConfigPaths.get(workspacePath);
     if (previousPath) {
       this.configPathIndex.delete(previousPath);
@@ -412,7 +669,7 @@ export class ConfigService {
   }
 
   async createDefaultConfigFile(workspacePath: string): Promise<void> {
-    const configPath = path.join(workspacePath, 'flow-test.config.yml');
+    const configPath = path.join(workspacePath, "flow-test.config.yml");
 
     const defaultConfigContent = `# Flow Test Runner Configuration
 command: flow-test-engine
@@ -464,11 +721,15 @@ reporting:
 `;
 
     try {
-      await fs.promises.writeFile(configPath, defaultConfigContent, 'utf8');
-      vscode.window.showInformationMessage(`Created default config file: ${configPath}`);
+      await fs.promises.writeFile(configPath, defaultConfigContent, "utf8");
+      vscode.window.showInformationMessage(
+        `Created default config file: ${configPath}`
+      );
     } catch (error) {
       vscode.window.showErrorMessage(
-        `Failed to create config file: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to create config file: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
   }
@@ -476,22 +737,20 @@ reporting:
   async promptForConfigFile(): Promise<string | undefined> {
     const options: vscode.OpenDialogOptions = {
       canSelectMany: false,
-      openLabel: 'Select Flow Test Config File',
+      openLabel: "Select Flow Test Config File",
       filters: {
-        'YAML files': ['yml', 'yaml'],
-        'All files': ['*']
-      }
+        "YAML files": ["yml", "yaml"],
+        "All files": ["*"],
+      },
     };
 
     const fileUri = await vscode.window.showOpenDialog(options);
     if (fileUri && fileUri[0]) {
       const configPath = fileUri[0].fsPath;
 
-      await vscode.workspace.getConfiguration('flowTestRunner').update(
-        'configFile',
-        configPath,
-        vscode.ConfigurationTarget.Workspace
-      );
+      await vscode.workspace
+        .getConfiguration("flowTestRunner")
+        .update("configFile", configPath, vscode.ConfigurationTarget.Workspace);
 
       this.clearCache();
       vscode.window.showInformationMessage(`Config file set to: ${configPath}`);

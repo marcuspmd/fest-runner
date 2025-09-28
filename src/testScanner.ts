@@ -1,9 +1,9 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as yaml from 'yaml';
-import { FlowTestConfig, FlowTestSuite } from './models/types';
-import { ConfigService } from './services/configService';
+import * as vscode from "vscode";
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "yaml";
+import { FlowTestConfig, FlowTestSuite } from "./models/types";
+import { ConfigService } from "./services/configService";
 
 interface CachedSuite {
   mtimeMs: number;
@@ -11,8 +11,10 @@ interface CachedSuite {
 }
 
 export class TestScanner {
-  private _onDidChangeTreeData: vscode.EventEmitter<void> = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
+  private _onDidChangeTreeData: vscode.EventEmitter<void> =
+    new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData: vscode.Event<void> =
+    this._onDidChangeTreeData.event;
 
   private watchers: vscode.FileSystemWatcher[] = [];
   private readonly suiteCache: Map<string, CachedSuite> = new Map();
@@ -52,16 +54,20 @@ export class TestScanner {
         processedDirectories
       );
 
-      const patterns =
-        config.discovery?.patterns ?? ['**/*.yml', '**/*.yaml'];
+      const patterns = config.discovery?.patterns ?? ["**/*.yml", "**/*.yaml"];
       const normalizedPatterns = patterns
-        .map(pattern => this.normalizeGlobPattern(pattern))
+        .map((pattern) => this.normalizeGlobPattern(pattern))
         .filter(Boolean);
 
-      const extraPatterns = ['flow-test.config.yml', 'flow-test.config.yaml', 'test-config.yml', 'test-config.yaml'];
+      const extraPatterns = [
+        "flow-test.config.yml",
+        "flow-test.config.yaml",
+        "test-config.yml",
+        "test-config.yaml",
+      ];
 
       if (normalizedPatterns.length === 0) {
-        normalizedPatterns.push('**/*.yml', '**/*.yaml');
+        normalizedPatterns.push("**/*.yml", "**/*.yaml");
       }
 
       for (const directory of searchDirectories) {
@@ -136,9 +142,10 @@ export class TestScanner {
         continue;
       }
 
-      const patterns =
-        config.discovery?.patterns ?? ['**/*.yml', '**/*.yaml'];
-      const excludePatterns = config.discovery?.exclude ?? ['**/node_modules/**'];
+      const patterns = config.discovery?.patterns ?? ["**/*.yml", "**/*.yaml"];
+      const excludePatterns = config.discovery?.exclude ?? [
+        "**/node_modules/**",
+      ];
 
       for (const directory of searchDirectories) {
         await this.collectSuitesInDirectory(
@@ -160,7 +167,7 @@ export class TestScanner {
     processedDirectories: Set<string>
   ): Promise<string[]> {
     const directories =
-      (config.testDirectories && config.testDirectories.length > 0)
+      config.testDirectories && config.testDirectories.length > 0
         ? config.testDirectories
         : [workspacePath];
 
@@ -196,11 +203,11 @@ export class TestScanner {
     suites: FlowTestSuite[]
   ): Promise<void> {
     const normalizedPatterns = patterns
-      .map(pattern => this.normalizeGlobPattern(pattern))
+      .map((pattern) => this.normalizeGlobPattern(pattern))
       .filter(Boolean);
 
     const normalizedExcludes = excludePatterns
-      .map(pattern => this.normalizeGlobPattern(pattern))
+      .map((pattern) => this.normalizeGlobPattern(pattern))
       .filter(Boolean);
 
     const excludeGlob = this.buildGlobUnion(normalizedExcludes);
@@ -246,29 +253,29 @@ export class TestScanner {
       return patterns[0];
     }
 
-    return `{${patterns.join(',')}}`;
+    return `{${patterns.join(",")}}`;
   }
 
   private normalizeGlobPattern(pattern: string): string {
     if (!pattern) {
-      return '';
+      return "";
     }
 
-    let normalized = pattern.replace(/\\/g, '/').trim();
+    let normalized = pattern.replace(/\\/g, "/").trim();
 
     if (!normalized) {
-      return '';
+      return "";
     }
 
-    if (normalized.startsWith('./')) {
+    if (normalized.startsWith("./")) {
       normalized = normalized.substring(2);
     }
 
-    if (normalized.startsWith('/')) {
+    if (normalized.startsWith("/")) {
       normalized = normalized.substring(1);
     }
 
-    normalized = normalized.replace(/\/{2,}/g, '/');
+    normalized = normalized.replace(/\/{2,}/g, "/");
 
     return normalized;
   }
@@ -279,8 +286,8 @@ export class TestScanner {
     const relative = path.relative(normalizedRoot, normalizedCandidate);
 
     return (
-      relative === '' ||
-      (!relative.startsWith('..') && !path.isAbsolute(relative))
+      relative === "" ||
+      (!relative.startsWith("..") && !path.isAbsolute(relative))
     );
   }
 
@@ -310,15 +317,21 @@ export class TestScanner {
 
       const hasRequest =
         step.request &&
-        typeof step.request === 'object' &&
-        typeof step.request.method === 'string' &&
+        typeof step.request === "object" &&
+        typeof step.request.method === "string" &&
         step.request.method.trim().length > 0 &&
-        typeof step.request.url === 'string' &&
+        typeof step.request.url === "string" &&
         step.request.url.trim().length > 0;
 
       const hasInput = step.input !== undefined && step.input !== null;
 
-      return hasRequest || hasInput;
+      const hasCall =
+        step.call &&
+        typeof step.call === "object" &&
+        typeof step.call.test === "string" &&
+        step.call.test.trim().length > 0;
+
+      return hasRequest || hasInput || hasCall;
     });
 
     return hasValidStep;
@@ -341,7 +354,7 @@ export class TestScanner {
     }
 
     try {
-      const content = await fs.promises.readFile(normalizedPath, 'utf8');
+      const content = await fs.promises.readFile(normalizedPath, "utf8");
       const parsed = yaml.parse(content);
 
       if (!this.isFlowTestFile(parsed)) {
@@ -355,12 +368,12 @@ export class TestScanner {
         suite_name: parsed.suite_name || path.basename(normalizedPath),
         base_url: parsed.base_url,
         auth: parsed.auth,
-        steps: parsed.steps || []
+        steps: parsed.steps || [],
       };
 
       this.suiteCache.set(normalizedPath, {
         mtimeMs: stats.mtimeMs,
-        suite
+        suite,
       });
 
       return suite;
@@ -396,9 +409,9 @@ export class TestScanner {
 
   private registerWatcher(watcher: vscode.FileSystemWatcher): void {
     this.watchers.push(watcher);
-    watcher.onDidCreate(uri => this.handleFileEvent(uri.fsPath));
-    watcher.onDidChange(uri => this.handleFileEvent(uri.fsPath));
-    watcher.onDidDelete(uri => this.handleFileEvent(uri.fsPath));
+    watcher.onDidCreate((uri) => this.handleFileEvent(uri.fsPath));
+    watcher.onDidChange((uri) => this.handleFileEvent(uri.fsPath));
+    watcher.onDidDelete((uri) => this.handleFileEvent(uri.fsPath));
   }
 
   private disposeWatchers(): void {
@@ -414,10 +427,12 @@ export class TestScanner {
 
   private looksLikeConfigFile(filePath: string): boolean {
     const name = path.basename(filePath).toLowerCase();
-    return name === 'flow-test.config.yml' ||
-      name === 'flow-test.config.yaml' ||
-      name === 'test-config.yml' ||
-      name === 'test-config.yaml';
+    return (
+      name === "flow-test.config.yml" ||
+      name === "flow-test.config.yaml" ||
+      name === "test-config.yml" ||
+      name === "test-config.yaml"
+    );
   }
 
   dispose(): void {

@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
@@ -83,6 +83,11 @@
         "icon": "$(preview)"
       },
       {
+        "command": "flow-test-runner.generateGraph",
+        "title": "Generate Discovery Graph",
+        "icon": "$(graph)"
+      },
+      {
         "command": "flow-test-runner.openTest",
         "title": "Open Test File",
         "icon": "$(go-to-file)"
@@ -141,19 +146,24 @@
           "group": "navigation@2"
         },
         {
-          "command": "flow-test-runner.viewLatestResults",
+          "command": "flow-test-runner.generateGraph",
           "when": "view == flowTestExplorer",
           "group": "navigation@3"
         },
         {
-          "command": "flow-test-runner.filterTests",
+          "command": "flow-test-runner.viewLatestResults",
           "when": "view == flowTestExplorer",
           "group": "navigation@4"
         },
         {
+          "command": "flow-test-runner.filterTests",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@5"
+        },
+        {
           "command": "flow-test-runner.clearFilter",
           "when": "view == flowTestExplorer && flowTestRunner.filterActive",
-          "group": "navigation@5"
+          "group": "navigation@6"
         },
         {
           "command": "flow-test-runner.createConfig",
@@ -208,6 +218,10 @@
         },
         {
           "command": "flow-test-runner.viewResults",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.generateGraph",
           "when": "workspaceHasFlowTests"
         },
         {
@@ -272,6 +286,32 @@
           "default": 0,
           "minimum": 0,
           "description": "Number of retries for failed tests"
+        },
+        "flowTestRunner.graphCommand": {
+          "type": "string",
+          "default": "flow-test-engine",
+          "description": "Command used to generate Flow Test discovery graphs"
+        },
+        "flowTestRunner.graphDirection": {
+          "type": "string",
+          "enum": [
+            "TD",
+            "LR",
+            "BT",
+            "RL"
+          ],
+          "default": "TD",
+          "description": "Default direction for generated Mermaid discovery graphs"
+        },
+        "flowTestRunner.graphOutput": {
+          "type": "string",
+          "default": "flow-discovery.mmd",
+          "description": "Default output path (relative or absolute) for generated discovery graphs"
+        },
+        "flowTestRunner.graphNoOrphans": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide orphan nodes when generating discovery graphs"
         }
       }
     }
@@ -281,13 +321,16 @@
     "build": "npm run typecheck && npm run bundle",
     "typecheck": "tsc --noEmit",
     "bundle": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist",
-    "watch": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist --watch"
+    "watch": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/vscode": "^1.75.0",
     "@types/node": "^18.x",
-    "esbuild": "^0.20.2",
-    "typescript": "^4.9.4"
+    "@types/vscode": "^1.75.0",
+    "esbuild": "^0.25.10",
+    "typescript": "^4.9.4",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "yaml": "^2.3.4"

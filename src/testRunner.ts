@@ -92,8 +92,7 @@ export class TestRunner {
 
   private _onSuiteResult: vscode.EventEmitter<SuiteResult> =
     new vscode.EventEmitter<SuiteResult>();
-  readonly onSuiteResult: vscode.Event<SuiteResult> =
-    this._onSuiteResult.event;
+  readonly onSuiteResult: vscode.Event<SuiteResult> = this._onSuiteResult.event;
 
   private _onUserInputRequired: vscode.EventEmitter<UserInputRequest> =
     new vscode.EventEmitter<UserInputRequest>();
@@ -110,10 +109,7 @@ export class TestRunner {
     return config.interactiveInputs !== false;
   }
 
-  async runSuite(
-    suitePath: string,
-    options?: TestRunOptions
-  ): Promise<void> {
+  async runSuite(suitePath: string, options?: TestRunOptions): Promise<void> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(suitePath)
     );
@@ -158,10 +154,7 @@ export class TestRunner {
     }
   }
 
-  async runAll(
-    workspacePath: string,
-    options?: TestRunOptions
-  ): Promise<void> {
+  async runAll(workspacePath: string, options?: TestRunOptions): Promise<void> {
     const config = await this.configService.getConfig(workspacePath);
     const cwd = config.workingDirectory || workspacePath;
     const useInteractiveInputs = this.shouldUseInteractiveInputs(config);
@@ -395,10 +388,7 @@ export class TestRunner {
         finalArgs.push(FLOW_INPUT_FLAG);
       }
 
-      if (
-        config.outputFormat === "html" ||
-        config.outputFormat === "both"
-      ) {
+      if (config.outputFormat === "html" || config.outputFormat === "both") {
         finalArgs.push("--html-output");
       }
 
@@ -562,7 +552,9 @@ export class TestRunner {
         } else {
           this.outputChannel.appendLine("");
           this.outputChannel.appendLine(
-            `${failureMessage || "❌ Test execution failed"} (exit code ${exitCode})`
+            `${
+              failureMessage || "❌ Test execution failed"
+            } (exit code ${exitCode})`
           );
           if (errorOutput) {
             this.outputChannel.appendLine(`Error output: ${errorOutput}`);
@@ -704,9 +696,7 @@ export class TestRunner {
     });
   }
 
-  private createInteractiveInputController(
-    context: InteractiveInputContext
-  ): {
+  private createInteractiveInputController(context: InteractiveInputContext): {
     handleData: (chunk: string) => string;
     flush: () => string;
     waitForCompletion: () => Promise<void>;
@@ -721,8 +711,7 @@ export class TestRunner {
           await this.processInteractiveInputRequest(payload, context);
         })
         .catch((error) => {
-          lastError =
-            error instanceof Error ? error : new Error(String(error));
+          lastError = error instanceof Error ? error : new Error(String(error));
         });
     };
 
@@ -748,9 +737,7 @@ export class TestRunner {
         return originalLine;
       }
 
-      const payloadText = trimmed
-        .slice(FLOW_INPUT_EVENT_PREFIX.length)
-        .trim();
+      const payloadText = trimmed.slice(FLOW_INPUT_EVENT_PREFIX.length).trim();
 
       if (!payloadText) {
         return "";
@@ -761,8 +748,7 @@ export class TestRunner {
         handleEvent(event);
         return "";
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         this.outputChannel.appendLine(
           `⚠️ Não foi possível interpretar evento interativo: ${message}`
         );
@@ -822,7 +808,7 @@ export class TestRunner {
       "";
     const suiteLabel = suiteSource
       ? path.basename(suiteSource)
-      : "flow-test";
+      : "flow-test-engine";
 
     const identifierCandidates = [
       payload.step_id,
@@ -872,7 +858,10 @@ export class TestRunner {
             return undefined;
           }
           const valueSource =
-            option.value ?? option.label ?? option.description ?? `option-${index + 1}`;
+            option.value ??
+            option.label ??
+            option.description ??
+            `option-${index + 1}`;
           const value = String(valueSource);
           const label = option.label ? String(option.label) : value;
           return {
@@ -1184,7 +1173,8 @@ export class TestRunner {
       const suiteLabel = this.resolveSuiteLabel(suite, fallbackSuiteLabel);
       this._onSuiteResult.fire({
         suite: suiteLabel,
-        filePath: typeof suite.file_path === "string" ? suite.file_path : undefined,
+        filePath:
+          typeof suite.file_path === "string" ? suite.file_path : undefined,
         status,
       });
     }
@@ -1205,10 +1195,7 @@ export class TestRunner {
     return "passed";
   }
 
-  private resolveSuiteLabel(
-    suite: any,
-    fallbackSuiteLabel?: string
-  ): string {
+  private resolveSuiteLabel(suite: any, fallbackSuiteLabel?: string): string {
     const candidates = [
       suite?.suite_name,
       suite?.node_id,
@@ -1254,10 +1241,7 @@ export class TestRunner {
         if (!suite) {
           return false;
         }
-        if (
-          suite.status &&
-          String(suite.status).toLowerCase() === "failure"
-        ) {
+        if (suite.status && String(suite.status).toLowerCase() === "failure") {
           return true;
         }
         if (typeof suite.steps_failed === "number" && suite.steps_failed > 0) {

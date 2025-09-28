@@ -14,7 +14,7 @@ export class FlowTestItem extends vscode.TreeItem {
   constructor(
     public readonly label: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-    public readonly type: "suite" | "step",
+    public readonly type: "folder" | "suite" | "step",
     public readonly filePath?: string,
     public readonly stepName?: string,
     public readonly stepId?: string,
@@ -26,13 +26,17 @@ export class FlowTestItem extends vscode.TreeItem {
     this.tooltip = this.getTooltip();
     this.iconPath = this.getIcon();
 
-    if (type === "suite" && filePath) {
+    if ((type === "suite" || type === "folder") && filePath) {
       this.resourceUri = vscode.Uri.file(filePath);
     }
   }
 
   private getTooltip(): string {
     switch (this.type) {
+      case "folder":
+        return `Test Folder: ${this.label}${
+          this.filePath ? `\nPath: ${this.filePath}` : ""
+        }`;
       case "suite":
         return `Flow Test Suite: ${this.label}${
           this.filePath ? `\nFile: ${this.filePath}` : ""
@@ -49,6 +53,9 @@ export class FlowTestItem extends vscode.TreeItem {
   }
 
   private getContextValue(): string {
+    if (this.type === "folder") {
+      return "folder";
+    }
     if (this.type === "suite") {
       return "suite";
     }
@@ -57,6 +64,9 @@ export class FlowTestItem extends vscode.TreeItem {
   }
 
   private getIcon(): vscode.ThemeIcon {
+    if (this.type === "folder") {
+      return new vscode.ThemeIcon("folder");
+    }
     if (this.type === "suite") {
       return new vscode.ThemeIcon("folder-opened");
     }
@@ -86,6 +96,15 @@ export class FlowTestItem extends vscode.TreeItem {
   }
 }
 
+interface FolderTreeNode {
+  name: string;
+  path: string;
+  workspacePath: string;
+  parentPath?: string;
+  childFolderPaths: Set<string>;
+  suites: FlowTestSuite[];
+}
+
 export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<
     FlowTestItem | undefined | null | void
@@ -102,6 +121,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
   private filterText: string | undefined;
   private normalizedFilter: string | undefined;
   private suiteFilterResults: Map<string, SuiteFilterResult> = new Map();
+  private folderNodesByPath: Map<string, FolderTreeNode> = new Map();
+  private workspaceRootKeys: string[] = [];
+  private displayWorkspaceRoots = false;
+  private cachedSuites: FlowTestSuite[] = [];
 
   constructor(
     private testScanner: TestScanner,
@@ -121,6 +144,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     this.testItems.clear();
     this.suiteItemsByKey.clear();
     this.suiteFilterResults.clear();
+    this.folderNodesByPath.clear();
+    this.workspaceRootKeys = [];
+    this.cachedSuites = [];
+    this.displayWorkspaceRoots = false;
     this._onDidChangeTreeData.fire();
   }
 
@@ -133,6 +160,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       return this.getRootItems();
     }
 
+    if (element.type === "folder" && element.filePath) {
+      return this.getFolderItems(element.filePath);
+    }
+
     if (element.type === "suite" && element.filePath) {
       return this.getStepItems(element.filePath);
     }
@@ -142,37 +173,239 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
 
   private async getRootItems(): Promise<FlowTestItem[]> {
     try {
-      const suites = await this.testScanner.findTestFiles();
-      const items: FlowTestItem[] = [];
+      await this.rebuildFolderTree();
 
-      for (const suite of suites) {
-        this.registerSuiteMetadata(suite);
-        const filterResult = this.evaluateSuiteFilter(suite);
-        if (!filterResult.include) {
-          continue;
-        }
-
-        const item = new FlowTestItem(
-          suite.suite_name || suite.name,
-          vscode.TreeItemCollapsibleState.Expanded,
-          "suite",
-          suite.filePath
-        );
-        this.testItems.set(suite.filePath, item);
-        this.testItems.set(this.normalizePathKey(suite.filePath), item);
-        this.registerSuiteMetadata(suite, item);
-        const cachedStatus = this.getCachedSuiteStatus(suite);
-        if (cachedStatus) {
-          item.updateStatus(cachedStatus);
-        }
-        items.push(item);
+      if (this.cachedSuites.length === 0) {
+        return [];
       }
 
-      return items;
+      if (this.displayWorkspaceRoots) {
+        return this.workspaceRootKeys
+          .map((key) => this.folderNodesByPath.get(key))
+          .filter((node): node is FolderTreeNode => Boolean(node))
+          .sort((a, b) => this.compareLabels(a.name, b.name))
+          .map((node) => this.createFolderItem(node));
+      }
+
+      const rootKey = this.workspaceRootKeys[0];
+      if (!rootKey) {
+        return [];
+      }
+
+      const rootNode = this.folderNodesByPath.get(rootKey);
+      if (!rootNode) {
+        return [];
+      }
+
+      return this.getFolderChildrenItems(rootNode);
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to load test suites: ${error}`);
       return [];
     }
+  }
+
+  private async rebuildFolderTree(): Promise<void> {
+    const suites = await this.testScanner.findTestFiles();
+    const includedSuites: FlowTestSuite[] = [];
+
+    this.folderNodesByPath.clear();
+    this.workspaceRootKeys = [];
+    this.cachedSuites = [];
+
+    for (const suite of suites) {
+      this.registerSuiteMetadata(suite);
+      const filterResult = this.evaluateSuiteFilter(suite);
+      if (!filterResult.include) {
+        continue;
+      }
+      includedSuites.push(suite);
+    }
+
+    this.cachedSuites = includedSuites;
+    if (includedSuites.length === 0) {
+      this.displayWorkspaceRoots = false;
+      return;
+    }
+
+    this.buildFolderTree(includedSuites);
+  }
+
+  private buildFolderTree(suites: FlowTestSuite[]): void {
+    this.folderNodesByPath.clear();
+    this.workspaceRootKeys = [];
+
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    this.displayWorkspaceRoots = workspaceFolders.length > 1;
+
+    const rootKeys = new Set<string>();
+
+    for (const suite of suites) {
+      const suiteUri = vscode.Uri.file(suite.filePath);
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(suiteUri);
+      const workspacePath = path.normalize(
+        workspaceFolder?.uri.fsPath ?? path.dirname(suite.filePath)
+      );
+      const workspaceName =
+        workspaceFolder?.name ?? path.basename(workspacePath);
+
+      const rootNode = this.ensureFolderNode(
+        workspacePath,
+        workspaceName,
+        workspacePath
+      );
+      rootKeys.add(rootNode.path);
+
+      const relativePath = workspaceFolder
+        ? path.relative(workspacePath, suite.filePath)
+        : path.basename(suite.filePath);
+      const directories = this.getDirectorySegments(relativePath);
+
+      let currentNode = rootNode;
+      let currentPath = rootNode.path;
+
+      for (const directory of directories) {
+        currentPath = path.normalize(path.join(currentPath, directory));
+        const childNode = this.ensureFolderNode(
+          currentPath,
+          directory,
+          rootNode.workspacePath,
+          currentNode.path
+        );
+        currentNode.childFolderPaths.add(childNode.path);
+        currentNode = childNode;
+      }
+
+      currentNode.suites.push(suite);
+    }
+
+    this.workspaceRootKeys = Array.from(rootKeys);
+  }
+
+  private ensureFolderNode(
+    folderPath: string,
+    name: string,
+    workspacePath: string,
+    parentPath?: string
+  ): FolderTreeNode {
+    const normalizedPath = path.normalize(folderPath);
+    let node = this.folderNodesByPath.get(normalizedPath);
+    if (!node) {
+      node = {
+        name,
+        path: normalizedPath,
+        workspacePath: path.normalize(workspacePath),
+        parentPath,
+        childFolderPaths: new Set<string>(),
+        suites: [],
+      };
+      this.folderNodesByPath.set(normalizedPath, node);
+    } else {
+      if (!node.parentPath && parentPath) {
+        node.parentPath = parentPath;
+      }
+      if (!node.name) {
+        node.name = name;
+      }
+    }
+    return node;
+  }
+
+  private getDirectorySegments(relativePath: string): string[] {
+    if (!relativePath) {
+      return [];
+    }
+
+    const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+    if (segments.length === 0) {
+      return [];
+    }
+
+    segments.pop();
+    return segments;
+  }
+
+  private compareLabels(a: string, b: string): number {
+    return a.localeCompare(b, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+  }
+
+  private getSuiteLabel(suite: FlowTestSuite): string {
+    const nameCandidates = [suite.suite_name, suite.name];
+    for (const candidate of nameCandidates) {
+      const trimmed = candidate?.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    return path.basename(suite.filePath);
+  }
+
+  private createSuiteItem(suite: FlowTestSuite): FlowTestItem {
+    const item = new FlowTestItem(
+      this.getSuiteLabel(suite),
+      vscode.TreeItemCollapsibleState.Expanded,
+      "suite",
+      suite.filePath
+    );
+    this.testItems.set(suite.filePath, item);
+    this.testItems.set(this.normalizePathKey(suite.filePath), item);
+    this.registerSuiteMetadata(suite, item);
+    const cachedStatus = this.getCachedSuiteStatus(suite);
+    if (cachedStatus) {
+      item.updateStatus(cachedStatus);
+    }
+    return item;
+  }
+
+  private createFolderItem(node: FolderTreeNode): FlowTestItem {
+    const label = node.name || path.basename(node.path);
+    return new FlowTestItem(
+      label,
+      vscode.TreeItemCollapsibleState.Collapsed,
+      "folder",
+      node.path
+    );
+  }
+
+  private getFolderChildrenItems(node: FolderTreeNode): FlowTestItem[] {
+    const items: FlowTestItem[] = [];
+
+    const folderChildren = Array.from(node.childFolderPaths)
+      .map((childPath) => this.folderNodesByPath.get(childPath))
+      .filter((child): child is FolderTreeNode => Boolean(child))
+      .sort((a, b) => this.compareLabels(a.name, b.name));
+
+    for (const child of folderChildren) {
+      items.push(this.createFolderItem(child));
+    }
+
+    const suiteChildren = [...node.suites].sort((a, b) =>
+      this.compareLabels(this.getSuiteLabel(a), this.getSuiteLabel(b))
+    );
+
+    for (const suite of suiteChildren) {
+      items.push(this.createSuiteItem(suite));
+    }
+
+    return items;
+  }
+
+  private async getFolderItems(folderPath: string): Promise<FlowTestItem[]> {
+    const normalizedPath = path.normalize(folderPath);
+    let node = this.folderNodesByPath.get(normalizedPath);
+
+    if (!node && this.cachedSuites.length === 0) {
+      await this.rebuildFolderTree();
+      node = this.folderNodesByPath.get(normalizedPath);
+    }
+
+    if (!node) {
+      return [];
+    }
+
+    return this.getFolderChildrenItems(node);
   }
 
   private async getStepItems(suitePath: string): Promise<FlowTestItem[]> {
@@ -261,6 +494,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     options: { useCachedInputs: boolean }
   ): Promise<void> {
     if (!item.filePath) {
+      return;
+    }
+
+    if (item.type === "folder") {
       return;
     }
 
@@ -424,7 +661,8 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
         name: path.basename(result.filePath, path.extname(result.filePath)),
         filePath: result.filePath,
         suite_name:
-          result.suite || path.basename(result.filePath, path.extname(result.filePath)),
+          result.suite ||
+          path.basename(result.filePath, path.extname(result.filePath)),
         steps: [],
       } as FlowTestSuite;
       this.registerSuiteMetadata(suite);
@@ -503,7 +741,9 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     keys.add(normalized.replace(/\\/g, "/"));
     keys.add(normalized.replace(/\s+/g, " "));
 
-    const sanitized = normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const sanitized = normalized
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
     if (sanitized) {
       keys.add(sanitized);
     }
@@ -694,6 +934,8 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       step.step_id,
       step.request?.method,
       step.request?.url,
+      step.call?.test,
+      step.call?.step,
     ];
 
     return candidates.some(
@@ -726,11 +968,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       candidates.add(normalizedPath);
       const baseName = path.basename(filePath);
       this.generateNameKeys(baseName).forEach((key) => candidates.add(key));
-      const baseWithoutExt = path.basename(
-        filePath,
-        path.extname(filePath)
+      const baseWithoutExt = path.basename(filePath, path.extname(filePath));
+      this.generateNameKeys(baseWithoutExt).forEach((key) =>
+        candidates.add(key)
       );
-      this.generateNameKeys(baseWithoutExt).forEach((key) => candidates.add(key));
     }
 
     this.generateNameKeys(name).forEach((key) => candidates.add(key));
