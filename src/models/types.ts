@@ -49,6 +49,12 @@ export interface FlowTestConfig {
   timeout: number;
   retryCount: number;
   workingDirectory?: string;
+  testDirectories?: string[];
+  discovery?: {
+    patterns?: string[];
+    exclude?: string[];
+  };
+  interactiveInputs?: boolean;
   reporting?: {
     outputDir?: string;
     html?: {

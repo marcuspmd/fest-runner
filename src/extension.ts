@@ -1,9 +1,12 @@
 import * as vscode from "vscode";
+import * as path from "path";
+import * as fs from "fs";
 import { FlowTestProvider } from "./testProvider";
 import { TestScanner } from "./testScanner";
 import { TestRunner } from "./testRunner";
 import { ConfigService } from "./services/configService";
 import { HtmlResultsService } from "./services/htmlResultsService";
+import { FlowTestConfig } from "./models/types";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -30,6 +33,15 @@ export function activate(context: vscode.ExtensionContext) {
         testProvider.runTest(item);
       }
     }),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.runWithCache",
+      (item) => {
+        if (item) {
+          testProvider.runTestWithCache(item);
+        }
+      }
+    ),
 
     vscode.commands.registerCommand("flow-test-runner.runAll", async () => {
       await testProvider.runAllSuites();
@@ -138,11 +150,11 @@ export function activate(context: vscode.ExtensionContext) {
     htmlResultsService
   );
 
-  checkForFlowTests();
+  checkForFlowTests(configService);
 }
 
-async function checkForFlowTests() {
-  const hasFlowTests = await hasFlowTestFiles();
+async function checkForFlowTests(configService: ConfigService) {
+  const hasFlowTests = await hasFlowTestFiles(configService);
   vscode.commands.executeCommand(
     "setContext",
     "workspaceHasFlowTests",
@@ -150,28 +162,150 @@ async function checkForFlowTests() {
   );
 }
 
-async function hasFlowTestFiles(): Promise<boolean> {
+async function hasFlowTestFiles(configService: ConfigService): Promise<boolean> {
   if (!vscode.workspace.workspaceFolders) {
     return false;
   }
 
-  try {
-    for (const workspaceFolder of vscode.workspace.workspaceFolders) {
-      const files = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(workspaceFolder, "**/*.{yml,yaml}"),
-        "**/node_modules/**",
-        1
-      );
+  for (const workspaceFolder of vscode.workspace.workspaceFolders) {
+    const workspacePath = workspaceFolder.uri.fsPath;
+    let config: FlowTestConfig;
 
-      if (files.length > 0) {
-        return true;
+    try {
+      config = await configService.getConfig(workspacePath);
+    } catch (error) {
+      console.warn(
+        `Error loading Flow Test configuration for ${workspacePath}:`,
+        error
+      );
+      continue;
+    }
+
+    const searchDirectories = await resolveCandidateDirectories(config, workspacePath);
+    if (searchDirectories.length === 0) {
+      continue;
+    }
+
+    const patterns = normalizeGlobList(config.discovery?.patterns ?? ["**/*.{yml,yaml}"]);
+    const excludePatterns = normalizeGlobList(config.discovery?.exclude ?? ["**/node_modules/**"]);
+    const excludeGlob = buildGlobUnion(excludePatterns);
+
+    for (const directory of searchDirectories) {
+      const excludePattern = excludeGlob
+        ? new vscode.RelativePattern(directory, excludeGlob)
+        : undefined;
+
+      for (const pattern of patterns) {
+        try {
+          const includePattern = new vscode.RelativePattern(directory, pattern);
+          const files = await vscode.workspace.findFiles(
+            includePattern,
+            excludePattern,
+            1
+          );
+
+          if (files.length > 0) {
+            return true;
+          }
+        } catch (error) {
+          console.warn(
+            `Error searching for Flow Test files in ${directory} with pattern ${pattern}:`,
+            error
+          );
+        }
       }
     }
-  } catch (error) {
-    console.warn("Error checking for Flow Test files:", error);
   }
 
   return false;
+}
+
+async function resolveCandidateDirectories(
+  config: FlowTestConfig,
+  workspacePath: string
+): Promise<string[]> {
+  const directories =
+    (config.testDirectories && config.testDirectories.length > 0)
+      ? config.testDirectories
+      : [workspacePath];
+
+  const resolved: string[] = [];
+
+  for (const dir of directories) {
+    const normalized = path.normalize(dir);
+
+    if (!isPathInside(workspacePath, normalized)) {
+      continue;
+    }
+
+    if (!(await isDirectory(normalized))) {
+      continue;
+    }
+
+    resolved.push(normalized);
+  }
+
+  return resolved;
+}
+
+function normalizeGlobList(values: string[]): string[] {
+  return values
+    .map(value => normalizeGlobPattern(value))
+    .filter((value, index, array) => value && array.indexOf(value) === index);
+}
+
+function normalizeGlobPattern(pattern: string): string {
+  if (!pattern) {
+    return "";
+  }
+
+  let normalized = pattern.replace(/\\/g, "/").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.startsWith("./")) {
+    normalized = normalized.substring(2);
+  }
+
+  if (normalized.startsWith("/")) {
+    normalized = normalized.substring(1);
+  }
+
+  return normalized.replace(/\/{2,}/g, "/");
+}
+
+function buildGlobUnion(patterns: string[]): string | undefined {
+  if (patterns.length === 0) {
+    return undefined;
+  }
+
+  if (patterns.length === 1) {
+    return patterns[0];
+  }
+
+  return `{${patterns.join(",")}}`;
+}
+
+async function isDirectory(targetPath: string): Promise<boolean> {
+  try {
+    const stats = await fs.promises.stat(targetPath);
+    return stats.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isPathInside(rootPath: string, candidatePath: string): boolean {
+  const normalizedRoot = path.normalize(rootPath);
+  const normalizedCandidate = path.normalize(candidatePath);
+  const relative = path.relative(normalizedRoot, normalizedCandidate);
+
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 export function deactivate() {}

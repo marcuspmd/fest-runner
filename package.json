@@ -58,6 +58,11 @@
         "icon": "$(play-circle)"
       },
       {
+        "command": "flow-test-runner.runWithCache",
+        "title": "Run Using Cached Inputs",
+        "icon": "$(history)"
+      },
+      {
         "command": "flow-test-runner.runAll",
         "title": "Run All Tests",
         "icon": "$(run-all)"
@@ -173,14 +178,19 @@
           "group": "inline@1"
         },
         {
+          "command": "flow-test-runner.runWithCache",
+          "when": "view == flowTestExplorer && viewItem =~ /suite|step-with-id/",
+          "group": "inline@2"
+        },
+        {
           "command": "flow-test-runner.viewResults",
           "when": "view == flowTestExplorer && viewItem =~ /suite|step/",
-          "group": "inline@2"
+          "group": "inline@3"
         },
         {
           "command": "flow-test-runner.openTest",
           "when": "view == flowTestExplorer && viewItem =~ /suite|step/",
-          "group": "inline@3"
+          "group": "inline@4"
         }
       ],
       "commandPalette": [

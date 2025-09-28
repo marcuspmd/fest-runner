@@ -40,11 +40,41 @@ steps:
       status_code: 200
 ```
 
+## Configuração
+
+Você pode ajustar o comportamento da descoberta de testes criando um arquivo `flow-test.config.yml` (ou usando o `test-config.yml` deste repositório como base). Um exemplo de configuração focada em projetos grandes:
+
+```yaml
+command: flow-test-engine
+test_directory: ./tests
+
+interactive_inputs: true
+
+discovery:
+  patterns:
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/tests/**/*.yaml"
+  exclude:
+    - "**/temp/**"
+    - "**/node_modules/**"
+    - "**/results/**"
+```
+
+Também é possível monitorar múltiplas pastas com `test_directories`:
+
+```yaml
+test_directories:
+  - ./tests
+  - ./integration-tests
+```
+
 ## Comandos
 
 - `flow-test-runner.refresh`: Atualizar lista de testes
 - `flow-test-runner.runTest`: Executar teste selecionado
 - `flow-test-runner.runSuite`: Executar suite completa
+- `flow-test-runner.runWithCache`: Executar usando valores em cache
 - `flow-test-runner.openTest`: Abrir arquivo de teste
 
 ## Desenvolvimento

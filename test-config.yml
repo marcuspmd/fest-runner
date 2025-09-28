@@ -3,3 +3,17 @@ command: flow-test-engine
 outputFormat: both
 timeout: 30000
 retryCount: 0
+
+test_directory: ./tests
+
+interactive_inputs: true
+
+discovery:
+  patterns:
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/tests/**/*.yaml"
+  exclude:
+    - "**/temp/**"
+    - "**/node_modules/**"
+    - "**/results/**"

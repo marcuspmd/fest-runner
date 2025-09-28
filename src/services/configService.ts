@@ -7,6 +7,8 @@ import { FlowTestConfig } from '../models/types';
 export class ConfigService {
   private static instance: ConfigService;
   private configCache: Map<string, FlowTestConfig> = new Map();
+  private configPathIndex: Map<string, string> = new Map();
+  private workspaceConfigPaths: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -24,6 +26,7 @@ export class ConfigService {
 
     const config = await this.loadConfig(workspacePath);
     this.configCache.set(workspacePath, config);
+    this.updateConfigPathIndex(workspacePath, config.configFile);
     return config;
   }
 
@@ -34,6 +37,12 @@ export class ConfigService {
       timeout: 30000,
       retryCount: 0,
       workingDirectory: workspacePath,
+      testDirectories: [workspacePath],
+      discovery: {
+        patterns: ['**/*.yml', '**/*.yaml'],
+        exclude: ['**/node_modules/**']
+      },
+      interactiveInputs: true,
       reporting: {
         outputDir: 'results',
         html: {
@@ -53,7 +62,7 @@ export class ConfigService {
         const configContent = await fs.promises.readFile(configFilePath, 'utf8');
         const parsedConfig = yaml.parse(configContent);
         fileConfig = this.validateAndTransformConfig(parsedConfig, configFilePath);
-        fileConfig.configFile = configFilePath;
+        fileConfig.configFile = path.normalize(configFilePath);
       } catch (error) {
         vscode.window.showWarningMessage(
           `Failed to load config file ${configFilePath}: ${error instanceof Error ? error.message : String(error)}`
@@ -91,6 +100,16 @@ export class ConfigService {
 
       mergedConfig.reporting = mergedReporting;
     }
+
+    mergedConfig.testDirectories = this.normalizeDirectories(
+      mergedConfig.testDirectories,
+      workspacePath,
+      mergedConfig.configFile
+    );
+
+    mergedConfig.discovery = this.normalizeDiscoveryConfig(
+      mergedConfig.discovery
+    );
 
     return mergedConfig;
   }
@@ -162,6 +181,35 @@ export class ConfigService {
       validatedConfig.workingDirectory = workingDir;
     }
 
+    const testDirectorySource =
+      config.testDirectories ??
+      config.test_directories ??
+      config.testDirectory ??
+      config.test_directory;
+
+    if (testDirectorySource) {
+      const normalizedTestDirs = this.normalizeTestDirectoryInput(
+        testDirectorySource,
+        path.dirname(configPath)
+      );
+      if (normalizedTestDirs.length > 0) {
+        validatedConfig.testDirectories = normalizedTestDirs;
+      }
+    }
+
+    if (config.discovery && typeof config.discovery === 'object') {
+      const normalizedDiscovery = this.normalizeDiscoveryInput(config.discovery);
+      if (normalizedDiscovery) {
+        validatedConfig.discovery = normalizedDiscovery;
+      }
+    }
+
+    const interactiveSource =
+      config.interactiveInputs ?? config.interactive_inputs ?? config.interactive;
+    if (typeof interactiveSource === 'boolean') {
+      validatedConfig.interactiveInputs = interactiveSource;
+    }
+
     if (config.reporting && typeof config.reporting === 'object') {
       const reportingSource = config.reporting;
       const reportingConfig: NonNullable<FlowTestConfig['reporting']> = {};
@@ -204,8 +252,163 @@ export class ConfigService {
     return validatedConfig;
   }
 
+  private normalizeTestDirectoryInput(value: unknown, baseDir: string): string[] {
+    const directories = this.toStringArray(value);
+    if (directories.length === 0) {
+      return [];
+    }
+
+    const normalized = directories.map(dir => this.resolveRelativePath(baseDir, dir));
+    return this.dedupeStrings(normalized);
+  }
+
+  private normalizeDiscoveryInput(value: any): FlowTestConfig['discovery'] | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+
+    const patterns = this.dedupeStrings(
+      this.toStringArray(value.patterns ?? value.pattern ?? value.include ?? value.includes)
+    );
+
+    const exclude = this.dedupeStrings(
+      this.toStringArray(value.exclude ?? value.excludes)
+    );
+
+    const discoveryConfig: NonNullable<FlowTestConfig['discovery']> = {};
+
+    if (patterns.length > 0) {
+      discoveryConfig.patterns = patterns;
+    }
+
+    if (exclude.length > 0) {
+      discoveryConfig.exclude = exclude;
+    }
+
+    return Object.keys(discoveryConfig).length > 0 ? discoveryConfig : undefined;
+  }
+
+  private normalizeDirectories(
+    directories: string[] | undefined,
+    workspacePath: string,
+    configFile?: string
+  ): string[] {
+    const baseDir = configFile ? path.dirname(configFile) : workspacePath;
+    const source = directories && directories.length > 0 ? directories : [workspacePath];
+    const normalized = source.map(dir => this.resolveRelativePath(baseDir, dir));
+    return this.dedupeStrings(normalized);
+  }
+
+  private normalizeDiscoveryConfig(
+    discovery: FlowTestConfig['discovery'] | undefined
+  ): NonNullable<FlowTestConfig['discovery']> {
+    const patterns = this.dedupeStrings(discovery?.patterns);
+    const exclude = this.dedupeStrings(discovery?.exclude);
+
+    const normalizedPatterns =
+      patterns.length > 0 ? patterns : ['**/*.yml', '**/*.yaml'];
+
+    const excludeSet = new Set<string>(exclude);
+    excludeSet.add('**/node_modules/**');
+
+    return {
+      patterns: normalizedPatterns,
+      exclude: Array.from(excludeSet)
+    };
+  }
+
+  private toStringArray(value: unknown): string[] {
+    if (!value) {
+      return [];
+    }
+
+    if (Array.isArray(value)) {
+      return value
+        .filter((item): item is string => typeof item === 'string')
+        .map(item => item.trim())
+        .filter(Boolean);
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed ? [trimmed] : [];
+    }
+
+    return [];
+  }
+
+  private dedupeStrings(values?: string[]): string[] {
+    if (!values || values.length === 0) {
+      return [];
+    }
+
+    const result: string[] = [];
+    const seen = new Set<string>();
+
+    for (const value of values) {
+      const trimmed = value.trim();
+      if (!trimmed || seen.has(trimmed)) {
+        continue;
+      }
+
+      seen.add(trimmed);
+      result.push(trimmed);
+    }
+
+    return result;
+  }
+
+  private resolveRelativePath(baseDir: string, target: string): string {
+    const normalizedBase = baseDir && path.isAbsolute(baseDir)
+      ? baseDir
+      : path.resolve(baseDir || '.');
+
+    const resolved = path.isAbsolute(target)
+      ? target
+      : path.resolve(normalizedBase, target);
+
+    return path.normalize(resolved);
+  }
+
+  private updateConfigPathIndex(workspacePath: string, configFile?: string): void {
+    const previousPath = this.workspaceConfigPaths.get(workspacePath);
+    if (previousPath) {
+      this.configPathIndex.delete(previousPath);
+      this.workspaceConfigPaths.delete(workspacePath);
+    }
+
+    if (configFile) {
+      const normalizedConfigPath = this.normalizeFilesystemPath(configFile);
+      this.workspaceConfigPaths.set(workspacePath, normalizedConfigPath);
+      this.configPathIndex.set(normalizedConfigPath, workspacePath);
+    }
+  }
+
+  private normalizeFilesystemPath(value: string): string {
+    return path.normalize(value);
+  }
+
   clearCache(): void {
     this.configCache.clear();
+    this.configPathIndex.clear();
+    this.workspaceConfigPaths.clear();
+  }
+
+  clearCacheForWorkspace(workspacePath: string): void {
+    this.configCache.delete(workspacePath);
+    const existingPath = this.workspaceConfigPaths.get(workspacePath);
+    if (existingPath) {
+      this.configPathIndex.delete(existingPath);
+      this.workspaceConfigPaths.delete(workspacePath);
+    }
+  }
+
+  invalidateConfigForFile(configFilePath: string): void {
+    const normalizedPath = this.normalizeFilesystemPath(configFilePath);
+    const workspacePath = this.configPathIndex.get(normalizedPath);
+    if (workspacePath) {
+      this.clearCacheForWorkspace(workspacePath);
+    }
   }
 
   async createDefaultConfigFile(workspacePath: string): Promise<void> {
@@ -216,6 +419,28 @@ command: flow-test-engine
 outputFormat: both
 timeout: 30000
 retryCount: 0
+
+# Directory containing Flow Test suites (relative to this config file)
+test_directory: ./tests
+
+# Enable interactive prompts (requires updated Flow Test Engine)
+interactive_inputs: true
+
+# To watch multiple locations, uncomment below and remove test_directory
+# test_directories:
+#   - ./tests
+#   - ./integration-tests
+
+# File discovery controls (patterns are relative to each test directory)
+discovery:
+  patterns:
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/tests/**/*.yaml"
+  exclude:
+    - "**/temp/**"
+    - "**/node_modules/**"
+    - "**/results/**"
 
 # Optional: Custom working directory (relative to config file)
 # workingDirectory: ./tests

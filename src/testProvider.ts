@@ -249,9 +249,22 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
   }
 
   async runTest(item: FlowTestItem): Promise<void> {
+    await this.runTestInternal(item, { useCachedInputs: false });
+  }
+
+  async runTestWithCache(item: FlowTestItem): Promise<void> {
+    await this.runTestInternal(item, { useCachedInputs: true });
+  }
+
+  private async runTestInternal(
+    item: FlowTestItem,
+    options: { useCachedInputs: boolean }
+  ): Promise<void> {
     if (!item.filePath) {
       return;
     }
+
+    const useCachedInputs = options.useCachedInputs;
 
     if (item.type === "suite") {
       const suite = await this.ensureSuiteMetadata(item.filePath);
@@ -260,7 +273,7 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
         this.prepareSuiteForRun(suite);
       }
       try {
-        await this.testRunner.runSuite(item.filePath);
+        await this.testRunner.runSuite(item.filePath, { useCachedInputs });
         if (suite) {
           const status = this.getCachedSuiteStatus(suite);
           if (status === "running") {
@@ -273,7 +286,10 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
         }
         // Error already reported by TestRunner
       }
-    } else if (item.type === "step" && item.stepName) {
+      return;
+    }
+
+    if (item.type === "step" && item.stepName) {
       if (!item.stepId) {
         vscode.window.showWarningMessage(
           "Este step não possui step_id definido e não pode ser executado isoladamente."
@@ -290,7 +306,8 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
         await this.testRunner.runStep(
           item.filePath,
           item.stepName,
-          item.stepId
+          item.stepId,
+          { useCachedInputs }
         );
       } catch {
         if (suite) {

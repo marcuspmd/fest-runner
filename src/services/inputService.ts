@@ -14,14 +14,30 @@ export class InputService {
     return InputService.instance;
   }
 
-  async handleUserInput(request: UserInputRequest): Promise<string | undefined> {
+  async handleUserInput(
+    request: UserInputRequest,
+    options?: {
+      useCache?: boolean;
+      updateCache?: boolean;
+      suppressNotifications?: boolean;
+    }
+  ): Promise<string | undefined> {
+    const {
+      useCache = true,
+      updateCache = true,
+      suppressNotifications = false
+    } = options ?? {};
     const cacheKey = `${request.stepName}:${request.inputName}`;
 
-    if (this.inputCache.has(cacheKey)) {
+    if (useCache && this.inputCache.has(cacheKey)) {
       const cachedValue = this.inputCache.get(cacheKey)!;
-      vscode.window.showInformationMessage(
-        `Using cached input for ${request.inputName}: ${request.masked ? '***' : cachedValue}`
-      );
+      if (!suppressNotifications) {
+        vscode.window.showInformationMessage(
+          `Using cached input for ${request.inputName}: ${
+            request.masked ? '***' : cachedValue
+          }`
+        );
+      }
       return cachedValue;
     }
 
@@ -56,7 +72,9 @@ export class InputService {
       }
 
       const value = String(picked.value ?? picked.label ?? picked.index + 1);
-      this.inputCache.set(cacheKey, value);
+      if (updateCache) {
+        this.inputCache.set(cacheKey, value);
+      }
       return value;
     }
 
@@ -80,7 +98,9 @@ export class InputService {
       }
 
       const value = picked.value;
-      this.inputCache.set(cacheKey, value);
+      if (updateCache) {
+        this.inputCache.set(cacheKey, value);
+      }
       return value;
     }
 
@@ -112,7 +132,9 @@ export class InputService {
     const userInput = await vscode.window.showInputBox(inputOptions);
 
     if (userInput !== undefined) {
-      this.inputCache.set(cacheKey, userInput);
+      if (updateCache) {
+        this.inputCache.set(cacheKey, userInput);
+      }
       return userInput;
     }
 

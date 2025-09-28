@@ -32,6 +32,53 @@ interface NormalizedInputConfig {
   options?: NormalizedInputOption[];
 }
 
+const FLOW_INPUT_EVENT_PREFIX = "@@FLOW_INPUT@@";
+const FLOW_INPUT_FLAG = "--runner-interactive-inputs";
+
+interface TestRunOptions {
+  useCachedInputs?: boolean;
+}
+
+interface FlowInputOptionPayload {
+  label?: string;
+  value?: string;
+  description?: string;
+}
+
+interface FlowInputRequestPayload {
+  request_id?: string;
+  suite_name?: string;
+  suite_path?: string;
+  step_name?: string;
+  step_id?: string;
+  step_index?: number;
+  cache_key?: string;
+  variable: string;
+  prompt?: string;
+  required?: boolean;
+  masked?: boolean;
+  input_type?: string;
+  default?: any;
+  options?: FlowInputOptionPayload[];
+}
+
+interface FlowInputEventPayload {
+  type?: string;
+  request?: FlowInputRequestPayload;
+  message?: string;
+}
+
+interface InteractiveInputContext {
+  process: ChildProcess;
+  config: FlowTestConfig;
+  suitePath?: string;
+  stepName?: string;
+  stepId?: string;
+  collectedInputs: Record<string, string>;
+  useCache: boolean;
+  suppressNotifications: boolean;
+}
+
 export class TestRunner {
   private runningProcesses: Map<string, ChildProcess> = new Map();
   private outputChannel: vscode.OutputChannel;
@@ -59,7 +106,14 @@ export class TestRunner {
     this.inputService = InputService.getInstance();
   }
 
-  async runSuite(suitePath: string): Promise<void> {
+  private shouldUseInteractiveInputs(config: FlowTestConfig): boolean {
+    return config.interactiveInputs !== false;
+  }
+
+  async runSuite(
+    suitePath: string,
+    options?: TestRunOptions
+  ): Promise<void> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(suitePath)
     );
@@ -73,6 +127,7 @@ export class TestRunner {
     );
     const cwd = config.workingDirectory || workspaceFolder.uri.fsPath;
     const relativePath = path.relative(cwd, suitePath);
+    const useCachedInputs = options?.useCachedInputs === true;
 
     this.outputChannel.show();
     this.outputChannel.appendLine(
@@ -91,7 +146,8 @@ export class TestRunner {
         relativePath,
         undefined,
         undefined,
-        config
+        config,
+        { useCachedInputs }
       );
     } catch (error) {
       const errorMessage =
@@ -102,9 +158,14 @@ export class TestRunner {
     }
   }
 
-  async runAll(workspacePath: string): Promise<void> {
+  async runAll(
+    workspacePath: string,
+    options?: TestRunOptions
+  ): Promise<void> {
     const config = await this.configService.getConfig(workspacePath);
     const cwd = config.workingDirectory || workspacePath;
+    const useInteractiveInputs = this.shouldUseInteractiveInputs(config);
+    const useCachedInputs = options?.useCachedInputs === true;
 
     this.outputChannel.show();
     this.outputChannel.appendLine("🚀 Running all Flow Test suites");
@@ -123,13 +184,17 @@ export class TestRunner {
       fallbackSuiteName: undefined,
       successMessage: "✅ All Flow Tests completed successfully",
       failureMessage: "❌ Flow Test execution failed",
+      useInteractiveInputs,
+      useCachedInputs,
+      collectedInputs: {},
     });
   }
 
   async runStep(
     suitePath: string,
     stepName: string,
-    stepId: string
+    stepId: string,
+    options?: TestRunOptions
   ): Promise<void> {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(suitePath)
@@ -144,6 +209,7 @@ export class TestRunner {
     );
     const cwd = config.workingDirectory || workspaceFolder.uri.fsPath;
     const relativePath = path.relative(cwd, suitePath);
+    const useCachedInputs = options?.useCachedInputs === true;
 
     this.outputChannel.show();
     this.outputChannel.appendLine(
@@ -163,7 +229,8 @@ export class TestRunner {
         relativePath,
         stepName,
         stepId,
-        config
+        config,
+        { useCachedInputs }
       );
     } catch (error) {
       const errorMessage =
@@ -182,7 +249,8 @@ export class TestRunner {
     relativePath: string,
     stepName?: string,
     stepId?: string,
-    config?: FlowTestConfig
+    config?: FlowTestConfig,
+    runOptions?: TestRunOptions
   ): Promise<void> {
     let finalConfig: FlowTestConfig;
     if (!config) {
@@ -199,26 +267,40 @@ export class TestRunner {
       finalConfig = config;
     }
 
+    const useInteractiveInputs = this.shouldUseInteractiveInputs(finalConfig);
+    const useCachedInputs = runOptions?.useCachedInputs === true;
+
+    const collectedInputs: Record<string, string> = {};
     let preparedInputs: {
       submissions: string[];
       userInputs: Record<string, string>;
     } = {
       submissions: [],
-      userInputs: {},
+      userInputs: collectedInputs,
     };
 
-    try {
-      preparedInputs = await this.prepareInteractiveInputs(suitePath, stepId);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      this.outputChannel.appendLine(
-        `❌ Failed to prepare test inputs: ${errorMessage}`
-      );
-      vscode.window.showErrorMessage(
-        `Falha ao coletar inputs necessários: ${errorMessage}`
-      );
-      throw error;
+    if (!useInteractiveInputs) {
+      try {
+        preparedInputs = await this.prepareInteractiveInputs(
+          suitePath,
+          stepId,
+          {
+            useCache: useCachedInputs,
+            suppressNotifications: useCachedInputs,
+          }
+        );
+        Object.assign(collectedInputs, preparedInputs.userInputs);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.outputChannel.appendLine(
+          `❌ Failed to prepare test inputs: ${errorMessage}`
+        );
+        vscode.window.showErrorMessage(
+          `Falha ao coletar inputs necessários: ${errorMessage}`
+        );
+        throw error;
+      }
     }
 
     this.lastExecutionState = {
@@ -227,15 +309,13 @@ export class TestRunner {
       stepId,
       config: finalConfig,
       userInputs:
-        Object.keys(preparedInputs.userInputs).length > 0
-          ? preparedInputs.userInputs
-          : undefined,
+        Object.keys(collectedInputs).length > 0 ? collectedInputs : undefined,
       timestamp: Date.now(),
     };
 
-    if (Object.keys(preparedInputs.userInputs).length > 0) {
+    if (!useInteractiveInputs && Object.keys(collectedInputs).length > 0) {
       this.outputChannel.appendLine(
-        `🧩 Inputs coletados: ${Object.keys(preparedInputs.userInputs).length}`
+        `🧩 Inputs coletados: ${Object.keys(collectedInputs).length}`
       );
     }
 
@@ -249,6 +329,9 @@ export class TestRunner {
       stepId,
       suitePath,
       preparedInputs,
+      useInteractiveInputs,
+      useCachedInputs,
+      collectedInputs,
       successMessage: "✅ Test completed successfully",
       failureMessage: "❌ Test execution failed",
     });
@@ -267,6 +350,9 @@ export class TestRunner {
       submissions: string[];
       userInputs: Record<string, string>;
     };
+    useInteractiveInputs?: boolean;
+    useCachedInputs?: boolean;
+    collectedInputs?: Record<string, string>;
     successMessage?: string;
     failureMessage?: string;
   }): Promise<void> {
@@ -280,6 +366,9 @@ export class TestRunner {
       stepId,
       suitePath,
       preparedInputs = { submissions: [], userInputs: {} },
+      useInteractiveInputs = false,
+      useCachedInputs = false,
+      collectedInputs,
       successMessage,
       failureMessage,
     } = options;
@@ -300,6 +389,10 @@ export class TestRunner {
 
       if (stepId) {
         finalArgs.push("--step", stepId);
+      }
+
+      if (useInteractiveInputs) {
+        finalArgs.push(FLOW_INPUT_FLAG);
       }
 
       if (
@@ -325,7 +418,7 @@ export class TestRunner {
 
       this.runningProcesses.set(processKey, testProcess);
 
-      if (preparedInputs.submissions.length > 0) {
+      if (!useInteractiveInputs && preparedInputs.submissions.length > 0) {
         preparedInputs.submissions.forEach((submission) => {
           testProcess.stdin?.write(`${submission}\n`);
         });
@@ -334,10 +427,39 @@ export class TestRunner {
       let output = "";
       let errorOutput = "";
 
+      const interactiveCollectedInputs =
+        collectedInputs ?? preparedInputs.userInputs ?? {};
+
+      const interactiveContext: InteractiveInputContext | undefined =
+        useInteractiveInputs
+          ? {
+              process: testProcess,
+              config,
+              suitePath,
+              stepName,
+              stepId,
+              collectedInputs: interactiveCollectedInputs,
+              useCache: useCachedInputs,
+              suppressNotifications: useCachedInputs,
+            }
+          : undefined;
+
+      const interactiveController = interactiveContext
+        ? this.createInteractiveInputController(interactiveContext)
+        : undefined;
+
       testProcess.stdout?.on("data", (data) => {
         const text = data.toString();
-        output += text;
-        this.outputChannel.append(text);
+        if (interactiveController) {
+          const forwarded = interactiveController.handleData(text);
+          if (forwarded) {
+            output += forwarded;
+            this.outputChannel.append(forwarded);
+          }
+        } else {
+          output += text;
+          this.outputChannel.append(text);
+        }
       });
 
       testProcess.stderr?.on("data", (data) => {
@@ -348,6 +470,26 @@ export class TestRunner {
 
       testProcess.on("close", async (code) => {
         this.runningProcesses.delete(processKey);
+
+        if (interactiveController) {
+          const remaining = interactiveController.flush();
+          if (remaining) {
+            output += remaining;
+            this.outputChannel.append(remaining);
+          }
+
+          try {
+            await interactiveController.waitForCompletion();
+          } catch (interactiveError) {
+            const message =
+              interactiveError instanceof Error
+                ? interactiveError.message
+                : String(interactiveError);
+            this.outputChannel.appendLine(
+              `❌ Erro ao processar inputs interativos: ${message}`
+            );
+          }
+        }
 
         const suiteLabel = fallbackSuiteLabel;
 
@@ -383,6 +525,17 @@ export class TestRunner {
           hadFailures,
           aggregatedResult
         );
+
+        if (
+          interactiveContext &&
+          this.lastExecutionState &&
+          suitePath &&
+          this.lastExecutionState.suitePath === suitePath
+        ) {
+          const keys = Object.keys(interactiveCollectedInputs);
+          this.lastExecutionState.userInputs =
+            keys.length > 0 ? interactiveCollectedInputs : undefined;
+        }
 
         if (stepName && !dispatched && suiteLabel) {
           const fallbackResult = {
@@ -455,22 +608,13 @@ export class TestRunner {
   ): string {
     switch (config.type) {
       case "select":
-        if (config.options && config.options.length > 0) {
-          const matched = config.options.find(
-            (option) => option.value === rawValue
-          );
-          if (matched) {
-            return String(matched.index + 1);
-          }
-
-          const numericIndex = parseInt(rawValue, 10);
-          if (!Number.isNaN(numericIndex) && config.options[numericIndex - 1]) {
-            return String(numericIndex);
-          }
-
-          return isDefault ? String(config.options[0].index + 1) : "1";
+        if (rawValue !== undefined) {
+          return String(rawValue);
         }
-        return rawValue;
+        if (config.defaultValue !== undefined) {
+          return String(config.defaultValue);
+        }
+        return "";
       case "confirm":
         if (rawValue === "y" || rawValue === "n") {
           return rawValue;
@@ -560,9 +704,303 @@ export class TestRunner {
     });
   }
 
+  private createInteractiveInputController(
+    context: InteractiveInputContext
+  ): {
+    handleData: (chunk: string) => string;
+    flush: () => string;
+    waitForCompletion: () => Promise<void>;
+  } {
+    let buffer = "";
+    let queue: Promise<void> = Promise.resolve();
+    let lastError: Error | undefined;
+
+    const enqueueRequest = (payload: FlowInputRequestPayload) => {
+      queue = queue
+        .then(async () => {
+          await this.processInteractiveInputRequest(payload, context);
+        })
+        .catch((error) => {
+          lastError =
+            error instanceof Error ? error : new Error(String(error));
+        });
+    };
+
+    const handleEvent = (event: FlowInputEventPayload) => {
+      if (!event || !event.type) {
+        return;
+      }
+
+      const type = event.type.toLowerCase();
+      if (type === "request" && event.request) {
+        enqueueRequest(event.request);
+        return;
+      }
+
+      if (type === "info" && event.message) {
+        this.outputChannel.appendLine(event.message);
+      }
+    };
+
+    const processLine = (lineContent: string, originalLine: string): string => {
+      const trimmed = lineContent.trim();
+      if (!trimmed.startsWith(FLOW_INPUT_EVENT_PREFIX)) {
+        return originalLine;
+      }
+
+      const payloadText = trimmed
+        .slice(FLOW_INPUT_EVENT_PREFIX.length)
+        .trim();
+
+      if (!payloadText) {
+        return "";
+      }
+
+      try {
+        const event = JSON.parse(payloadText) as FlowInputEventPayload;
+        handleEvent(event);
+        return "";
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        this.outputChannel.appendLine(
+          `⚠️ Não foi possível interpretar evento interativo: ${message}`
+        );
+        return originalLine;
+      }
+    };
+
+    const handleData = (chunk: string): string => {
+      buffer += chunk;
+      let forwarded = "";
+      let newlineIndex = buffer.indexOf("\n");
+
+      while (newlineIndex !== -1) {
+        const lineWithNewline = buffer.slice(0, newlineIndex + 1);
+        buffer = buffer.slice(newlineIndex + 1);
+        const lineWithoutNewline = lineWithNewline.replace(/\r?\n$/, "");
+        forwarded += processLine(lineWithoutNewline, lineWithNewline);
+        newlineIndex = buffer.indexOf("\n");
+      }
+
+      return forwarded;
+    };
+
+    const flush = (): string => {
+      if (!buffer) {
+        return "";
+      }
+
+      const remaining = buffer;
+      buffer = "";
+      return processLine(remaining, remaining);
+    };
+
+    const waitForCompletion = async (): Promise<void> => {
+      await queue;
+      if (lastError) {
+        throw lastError;
+      }
+    };
+
+    return { handleData, flush, waitForCompletion };
+  }
+
+  private buildInteractiveStepKey(
+    payload: FlowInputRequestPayload,
+    context: InteractiveInputContext
+  ): string {
+    if (payload.cache_key && String(payload.cache_key).trim().length > 0) {
+      return String(payload.cache_key).trim();
+    }
+
+    const suiteSource =
+      payload.suite_path ??
+      context.suitePath ??
+      context.config.configFile ??
+      context.config.workingDirectory ??
+      "";
+    const suiteLabel = suiteSource
+      ? path.basename(suiteSource)
+      : "flow-test";
+
+    const identifierCandidates = [
+      payload.step_id,
+      payload.step_name,
+      context.stepId,
+      context.stepName,
+      typeof payload.step_index === "number"
+        ? `step-${payload.step_index + 1}`
+        : undefined,
+      payload.variable,
+    ];
+
+    const identifier = identifierCandidates.find(
+      (candidate) =>
+        typeof candidate === "string" && candidate.trim().length > 0
+    );
+
+    return `${suiteLabel}::${identifier ?? "step"}`;
+  }
+
+  private mapInteractivePayloadToConfig(
+    payload: FlowInputRequestPayload,
+    stepKey: string
+  ): NormalizedInputConfig {
+    const type = (payload.input_type ?? "text").toString().toLowerCase();
+    const masked = payload.masked === true || type === "password";
+    const required = payload.required !== false;
+    const variable = String(payload.variable);
+    const prompt = payload.prompt
+      ? String(payload.prompt)
+      : `Informe o valor para ${variable}`;
+
+    let defaultValue: string | undefined;
+    if (payload.default !== undefined && payload.default !== null) {
+      if (type === "confirm") {
+        defaultValue = payload.default ? "y" : "n";
+      } else {
+        defaultValue = String(payload.default);
+      }
+    }
+
+    let options: NormalizedInputOption[] | undefined;
+    if (Array.isArray(payload.options) && payload.options.length > 0) {
+      options = payload.options
+        .map((option, index) => {
+          if (!option) {
+            return undefined;
+          }
+          const valueSource =
+            option.value ?? option.label ?? option.description ?? `option-${index + 1}`;
+          const value = String(valueSource);
+          const label = option.label ? String(option.label) : value;
+          return {
+            label,
+            value,
+            index,
+          };
+        })
+        .filter((option): option is NormalizedInputOption => Boolean(option));
+    }
+
+    return {
+      stepKey,
+      stepLabel: String(
+        payload.step_name ??
+          payload.step_id ??
+          `Step ${
+            typeof payload.step_index === "number" ? payload.step_index + 1 : 1
+          }`
+      ),
+      variable,
+      prompt,
+      type,
+      required,
+      masked,
+      defaultValue,
+      options,
+    };
+  }
+
+  private async processInteractiveInputRequest(
+    payload: FlowInputRequestPayload,
+    context: InteractiveInputContext
+  ): Promise<void> {
+    if (!payload || payload.variable === undefined) {
+      return;
+    }
+
+    const stepKey = this.buildInteractiveStepKey(payload, context);
+    const config = this.mapInteractivePayloadToConfig(payload, stepKey);
+    const request: UserInputRequest = {
+      stepName: config.stepKey,
+      inputName: config.variable,
+      prompt: config.prompt,
+      required: config.required,
+      masked: config.masked,
+      type: config.type,
+      options: config.options?.map((option) => ({
+        label: option.label,
+        value: option.value,
+      })),
+      defaultValue: config.defaultValue,
+    };
+
+    let rawValue: string | undefined;
+
+    try {
+      rawValue = await this.handleInteractiveInput(request, {
+        useCache: context.useCache,
+        suppressNotifications: context.suppressNotifications,
+      });
+    } catch (error) {
+      context.process.kill();
+      throw error;
+    }
+
+    if (rawValue === undefined) {
+      if (config.defaultValue !== undefined) {
+        context.collectedInputs[payload.variable] = this.normalizeStoredValue(
+          config,
+          config.defaultValue
+        );
+        this.inputService.setCachedInput(
+          request.stepName,
+          request.inputName,
+          config.defaultValue
+        );
+        context.process.stdin?.write(
+          `${this.toSubmissionValue(config, config.defaultValue, true)}\n`
+        );
+        return;
+      }
+
+      if (!config.required) {
+        if (config.type === "confirm") {
+          context.collectedInputs[payload.variable] = this.normalizeStoredValue(
+            config,
+            "n"
+          );
+          this.inputService.setCachedInput(
+            request.stepName,
+            request.inputName,
+            "n"
+          );
+          context.process.stdin?.write("\n");
+        } else {
+          context.collectedInputs[payload.variable] = "";
+          this.inputService.setCachedInput(
+            request.stepName,
+            request.inputName,
+            ""
+          );
+          context.process.stdin?.write("\n");
+        }
+        return;
+      }
+
+      throw new Error(`Input obrigatório cancelado: ${request.inputName}`);
+    }
+
+    const submissionValue = this.toSubmissionValue(config, rawValue);
+    const storedValue = this.normalizeStoredValue(config, rawValue);
+    context.collectedInputs[payload.variable] = storedValue;
+    this.inputService.setCachedInput(
+      request.stepName,
+      request.inputName,
+      storedValue
+    );
+    context.process.stdin?.write(`${submissionValue}\n`);
+  }
+
   private async prepareInteractiveInputs(
     suitePath: string,
-    stepId?: string
+    stepId?: string,
+    options?: {
+      useCache?: boolean;
+      suppressNotifications?: boolean;
+    }
   ): Promise<{ submissions: string[]; userInputs: Record<string, string> }> {
     let suiteContent: string;
     try {
@@ -593,6 +1031,9 @@ export class TestRunner {
       return { submissions: [], userInputs: {} };
     }
 
+    const useCache = options?.useCache ?? true;
+    const suppressNotifications = options?.suppressNotifications ?? false;
+
     const submissions: string[] = [];
     const userInputs: Record<string, string> = {};
 
@@ -613,7 +1054,10 @@ export class TestRunner {
           defaultValue: input.defaultValue,
         };
 
-        const rawValue = await this.handleInteractiveInput(request);
+        const rawValue = await this.handleInteractiveInput(request, {
+          useCache,
+          suppressNotifications,
+        });
 
         if (rawValue === undefined) {
           if (input.defaultValue !== undefined) {
@@ -996,9 +1440,11 @@ export class TestRunner {
           );
           return;
         }
-        await this.runStep(suitePath, stepName, stepId);
+        await this.runStep(suitePath, stepName, stepId, {
+          useCachedInputs: true,
+        });
       } else {
-        await this.runSuite(suitePath);
+        await this.runSuite(suitePath, { useCachedInputs: true });
       }
     } catch (error) {
       const errorMessage =
@@ -1013,12 +1459,19 @@ export class TestRunner {
   }
 
   async handleInteractiveInput(
-    request: UserInputRequest
+    request: UserInputRequest,
+    options?: {
+      useCache?: boolean;
+      suppressNotifications?: boolean;
+    }
   ): Promise<string | undefined> {
     this._onUserInputRequired.fire(request);
 
     try {
-      return await this.inputService.handleUserInput(request);
+      return await this.inputService.handleUserInput(request, {
+        useCache: options?.useCache,
+        suppressNotifications: options?.suppressNotifications,
+      });
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
