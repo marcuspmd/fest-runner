@@ -7,6 +7,7 @@ import { TestRunner } from "./testRunner";
 import { ConfigService } from "./services/configService";
 import { HtmlResultsService } from "./services/htmlResultsService";
 import { GraphService, GraphGenerationResult } from "./services/graphService";
+import { ImportExportService } from "./services/importExportService";
 import { FlowTestConfig, FlowTestGraphDirection } from "./models/types";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -16,6 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
   const configService = ConfigService.getInstance();
   const htmlResultsService = HtmlResultsService.getInstance();
   const graphService = GraphService.getInstance();
+  const importExportService = ImportExportService.getInstance();
 
   vscode.window.registerTreeDataProvider("flowTestExplorer", testProvider);
 
@@ -144,13 +146,52 @@ export function activate(context: vscode.ExtensionContext) {
         await testRunner.editCachedInput();
       }
     ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.importSwagger",
+      async () => {
+        await handleImportSwagger(importExportService, configService);
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.importPostman",
+      async () => {
+        await handleImportPostman(importExportService, configService);
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.exportPostman",
+      async (item) => {
+        await handleExportPostman(
+          importExportService,
+          configService,
+          item,
+          false
+        );
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.exportPostmanFromResults",
+      async () => {
+        await handleExportPostman(
+          importExportService,
+          configService,
+          undefined,
+          true
+        );
+      }
+    ),
   ];
 
   context.subscriptions.push(
     ...commands,
     testScanner,
     testRunner,
-    htmlResultsService
+    htmlResultsService,
+    importExportService
   );
 
   checkForFlowTests(configService);
@@ -643,6 +684,375 @@ function isPathInside(rootPath: string, candidatePath: string): boolean {
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
   );
+}
+
+async function handleImportSwagger(
+  importExportService: ImportExportService,
+  configService: ConfigService
+): Promise<void> {
+  const workspaceFolder = await selectWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage("No workspace folder found");
+    return;
+  }
+
+  const workspacePath = workspaceFolder.uri.fsPath;
+
+  const inputUri = await vscode.window.showOpenDialog({
+    title: "Select Swagger/OpenAPI file",
+    openLabel: "Import",
+    canSelectMany: false,
+    filters: {
+      JSON: ["json"],
+      YAML: ["yaml", "yml"],
+      All: ["*"],
+    },
+  });
+
+  if (!inputUri || inputUri.length === 0) {
+    return;
+  }
+
+  const defaultOutputDir = path.join(workspacePath, "tests", "imported");
+
+  const outputUri = await vscode.window.showSaveDialog({
+    title: "Select output directory",
+    saveLabel: "Import Here",
+    defaultUri: vscode.Uri.file(defaultOutputDir),
+  });
+
+  if (!outputUri) {
+    return;
+  }
+
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Importing Swagger/OpenAPI...",
+      },
+      async () => {
+        return importExportService.importSwagger({
+          workspacePath,
+          inputPath: inputUri[0].fsPath,
+          outputPath: outputUri.fsPath,
+          type: "swagger",
+        });
+      }
+    );
+
+    const relativeOutput = path.relative(workspacePath, result.outputPath);
+    const outputDisplay =
+      relativeOutput && !relativeOutput.startsWith("..")
+        ? relativeOutput
+        : result.outputPath;
+
+    const openOption = "Open Folder";
+    const revealOption = "Reveal";
+
+    const action = await vscode.window.showInformationMessage(
+      `Swagger tests imported to ${outputDisplay}`,
+      openOption,
+      revealOption
+    );
+
+    if (action === openOption) {
+      await vscode.commands.executeCommand(
+        "vscode.openFolder",
+        vscode.Uri.file(result.outputPath),
+        { forceNewWindow: false }
+      );
+    } else if (action === revealOption) {
+      await vscode.commands.executeCommand(
+        "revealFileInOS",
+        vscode.Uri.file(result.outputPath)
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(`Failed to import Swagger: ${message}`);
+  }
+}
+
+async function handleImportPostman(
+  importExportService: ImportExportService,
+  configService: ConfigService
+): Promise<void> {
+  const workspaceFolder = await selectWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage("No workspace folder found");
+    return;
+  }
+
+  const workspacePath = workspaceFolder.uri.fsPath;
+
+  const inputUri = await vscode.window.showOpenDialog({
+    title: "Select Postman collection file",
+    openLabel: "Import",
+    canSelectMany: false,
+    filters: {
+      JSON: ["json"],
+      All: ["*"],
+    },
+  });
+
+  if (!inputUri || inputUri.length === 0) {
+    return;
+  }
+
+  const defaultOutputDir = path.join(
+    workspacePath,
+    "tests",
+    "imported-postman"
+  );
+
+  const outputUri = await vscode.window.showSaveDialog({
+    title: "Select output directory",
+    saveLabel: "Import Here",
+    defaultUri: vscode.Uri.file(defaultOutputDir),
+  });
+
+  if (!outputUri) {
+    return;
+  }
+
+  const preserveFoldersItems = [
+    {
+      label: "Yes",
+      description: "Preserve Postman folder structure",
+      value: true,
+    },
+    {
+      label: "No",
+      description: "Flatten structure",
+      value: false,
+    },
+  ];
+
+  const preserveFoldersSelection = await vscode.window.showQuickPick(
+    preserveFoldersItems,
+    {
+      title: "Preserve Folder Structure?",
+      placeHolder: "Maintain Postman collection folder hierarchy",
+      ignoreFocusOut: true,
+    }
+  );
+
+  if (!preserveFoldersSelection) {
+    return;
+  }
+
+  const analyzeDepsItems = [
+    {
+      label: "Yes",
+      description: "Analyze request dependencies",
+      value: true,
+    },
+    {
+      label: "No",
+      description: "Skip dependency analysis",
+      value: false,
+    },
+  ];
+
+  const analyzeDepsSelection = await vscode.window.showQuickPick(
+    analyzeDepsItems,
+    {
+      title: "Analyze Dependencies?",
+      placeHolder: "Detect and map request dependencies",
+      ignoreFocusOut: true,
+    }
+  );
+
+  if (!analyzeDepsSelection) {
+    return;
+  }
+
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Importing Postman collection...",
+      },
+      async () => {
+        return importExportService.importPostman({
+          workspacePath,
+          inputPath: inputUri[0].fsPath,
+          outputPath: outputUri.fsPath,
+          type: "postman",
+          preserveFolders: preserveFoldersSelection.value,
+          analyzeDeps: analyzeDepsSelection.value,
+        });
+      }
+    );
+
+    const relativeOutput = path.relative(workspacePath, result.outputPath);
+    const outputDisplay =
+      relativeOutput && !relativeOutput.startsWith("..")
+        ? relativeOutput
+        : result.outputPath;
+
+    const openOption = "Open Folder";
+    const revealOption = "Reveal";
+
+    const action = await vscode.window.showInformationMessage(
+      `Postman tests imported to ${outputDisplay}`,
+      openOption,
+      revealOption
+    );
+
+    if (action === openOption) {
+      await vscode.commands.executeCommand(
+        "vscode.openFolder",
+        vscode.Uri.file(result.outputPath),
+        { forceNewWindow: false }
+      );
+    } else if (action === revealOption) {
+      await vscode.commands.executeCommand(
+        "revealFileInOS",
+        vscode.Uri.file(result.outputPath)
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(
+      `Failed to import Postman collection: ${message}`
+    );
+  }
+}
+
+async function handleExportPostman(
+  importExportService: ImportExportService,
+  _configService: ConfigService,
+  item: any,
+  fromResults: boolean
+): Promise<void> {
+  const workspaceFolder = await selectWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage("No workspace folder found");
+    return;
+  }
+
+  const workspacePath = workspaceFolder.uri.fsPath;
+
+  let inputPath: string;
+
+  if (fromResults) {
+    const resultsPath = path.join(workspacePath, "results", "latest.json");
+
+    if (!(await fileExists(resultsPath))) {
+      vscode.window.showErrorMessage(
+        "No test results found. Run tests first."
+      );
+      return;
+    }
+
+    inputPath = resultsPath;
+  } else {
+    let defaultInputPath: string | undefined;
+
+    if (item?.filePath) {
+      defaultInputPath = item.filePath;
+    }
+
+    const inputUri = await vscode.window.showOpenDialog({
+      title: "Select Flow Test file or directory to export",
+      openLabel: "Export",
+      canSelectMany: false,
+      canSelectFiles: true,
+      canSelectFolders: true,
+      defaultUri: defaultInputPath
+        ? vscode.Uri.file(defaultInputPath)
+        : undefined,
+      filters: {
+        YAML: ["yaml", "yml"],
+        All: ["*"],
+      },
+    });
+
+    if (!inputUri || inputUri.length === 0) {
+      return;
+    }
+
+    inputPath = inputUri[0].fsPath;
+  }
+
+  const defaultOutputName = fromResults
+    ? "exported-results.postman_collection.json"
+    : "exported.postman_collection.json";
+
+  const defaultOutputPath = path.join(workspacePath, defaultOutputName);
+
+  const outputUri = await vscode.window.showSaveDialog({
+    title: "Save Postman collection",
+    saveLabel: "Export",
+    defaultUri: vscode.Uri.file(defaultOutputPath),
+    filters: {
+      JSON: ["json"],
+    },
+  });
+
+  if (!outputUri) {
+    return;
+  }
+
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Exporting to Postman...",
+      },
+      async () => {
+        return importExportService.exportPostman({
+          workspacePath,
+          inputPath,
+          outputPath: outputUri.fsPath,
+          fromResults,
+        });
+      }
+    );
+
+    const relativeOutput = path.relative(workspacePath, result.outputPath);
+    const outputDisplay =
+      relativeOutput && !relativeOutput.startsWith("..")
+        ? relativeOutput
+        : result.outputPath;
+
+    const openOption = "Open";
+    const revealOption = "Reveal";
+
+    const action = await vscode.window.showInformationMessage(
+      `Postman collection exported to ${outputDisplay}`,
+      openOption,
+      revealOption
+    );
+
+    if (action === openOption) {
+      const document = await vscode.workspace.openTextDocument(
+        vscode.Uri.file(result.outputPath)
+      );
+      await vscode.window.showTextDocument(document, {
+        preview: false,
+      });
+    } else if (action === revealOption) {
+      await vscode.commands.executeCommand(
+        "revealFileInOS",
+        vscode.Uri.file(result.outputPath)
+      );
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(`Failed to export to Postman: ${message}`);
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(filePath, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function deactivate() {}

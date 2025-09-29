@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
@@ -126,6 +126,26 @@
         "command": "flow-test-runner.editCachedInput",
         "title": "Edit Cached Input",
         "icon": "$(edit)"
+      },
+      {
+        "command": "flow-test-runner.importSwagger",
+        "title": "Import Swagger/OpenAPI",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "flow-test-runner.importPostman",
+        "title": "Import Postman Collection",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "flow-test-runner.exportPostman",
+        "title": "Export to Postman",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "flow-test-runner.exportPostmanFromResults",
+        "title": "Export Results to Postman",
+        "icon": "$(cloud-upload)"
       }
     ],
     "menus": {
@@ -174,6 +194,16 @@
           "command": "flow-test-runner.selectConfig",
           "when": "view == flowTestExplorer",
           "group": "secondary@2"
+        },
+        {
+          "command": "flow-test-runner.importSwagger",
+          "when": "view == flowTestExplorer",
+          "group": "secondary@3"
+        },
+        {
+          "command": "flow-test-runner.importPostman",
+          "when": "view == flowTestExplorer",
+          "group": "secondary@4"
         }
       ],
       "view/item/context": [
@@ -201,6 +231,11 @@
           "command": "flow-test-runner.openTest",
           "when": "view == flowTestExplorer && viewItem =~ /suite|step/",
           "group": "inline@4"
+        },
+        {
+          "command": "flow-test-runner.exportPostman",
+          "when": "view == flowTestExplorer && viewItem == suite",
+          "group": "export@1"
         }
       ],
       "commandPalette": [
@@ -250,6 +285,22 @@
         },
         {
           "command": "flow-test-runner.editCachedInput",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.importSwagger",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.importPostman",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.exportPostman",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.exportPostmanFromResults",
           "when": "workspaceHasFlowTests"
         }
       ]
