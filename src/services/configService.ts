@@ -759,4 +759,9 @@ reporting:
 
     return undefined;
   }
+
+  async hasConfigFile(workspacePath: string): Promise<boolean> {
+    const configFilePath = await this.findConfigFile(workspacePath);
+    return configFilePath !== null;
+  }
 }

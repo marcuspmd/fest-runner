@@ -16,6 +16,11 @@ export class HtmlResultsService {
   private static instance: HtmlResultsService;
   private webviewPanel: vscode.WebviewPanel | undefined;
   private configService = ConfigService.getInstance();
+  private testRunner: any; // Será injetado do extension.ts
+  private navigationHistory: string[] = [];
+  private navigationIndex: number = -1;
+  private currentResourceRoots: Set<string> = new Set();
+  private isNavigating: boolean = false;
 
   private constructor() {}
 
@@ -24,6 +29,10 @@ export class HtmlResultsService {
       HtmlResultsService.instance = new HtmlResultsService();
     }
     return HtmlResultsService.instance;
+  }
+
+  setTestRunner(testRunner: any): void {
+    this.testRunner = testRunner;
   }
 
   async showResults(workspacePath: string, suiteName?: string): Promise<void> {
@@ -562,24 +571,58 @@ export class HtmlResultsService {
     return normalized.includes('/coverage/') || normalized.includes('/lcov-report/');
   }
 
-  private async displayHtmlResults(htmlPath: string, title: string): Promise<void> {
-    if (this.webviewPanel) {
-      this.webviewPanel.dispose();
+  private async displayHtmlResults(htmlPath: string, title: string, addToHistory: boolean = true): Promise<void> {
+    // Adicionar ao histórico de navegação
+    if (addToHistory) {
+      // Remove items após o índice atual (quando navegamos para trás e então para novo link)
+      this.navigationHistory = this.navigationHistory.slice(0, this.navigationIndex + 1);
+      this.navigationHistory.push(htmlPath);
+      this.navigationIndex = this.navigationHistory.length - 1;
     }
 
-    this.webviewPanel = vscode.window.createWebviewPanel(
-      'flowTestResults',
-      `Flow Test Results - ${title}`,
-      vscode.ViewColumn.Active,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.file(path.dirname(htmlPath)),
-          vscode.Uri.file(path.join(path.dirname(htmlPath), '..')),
-        ]
-      }
-    );
+    const htmlDir = path.dirname(htmlPath);
+    const needsRecreate = this.webviewPanel && !this.currentResourceRoots.has(htmlDir);
+
+    // Recriar webview se mudou de diretório
+    if (needsRecreate) {
+      this.isNavigating = true;
+      this.webviewPanel?.dispose();
+      this.webviewPanel = undefined;
+      this.currentResourceRoots.clear();
+      this.isNavigating = false;
+    }
+
+    // Criar webview se não existe
+    if (!this.webviewPanel) {
+      this.currentResourceRoots.add(htmlDir);
+      this.currentResourceRoots.add(path.join(htmlDir, '..'));
+
+      this.webviewPanel = vscode.window.createWebviewPanel(
+        'flowTestResults',
+        `Flow Test Results - ${title}`,
+        vscode.ViewColumn.Active,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: Array.from(this.currentResourceRoots).map(dir => vscode.Uri.file(dir))
+        }
+      );
+
+      this.webviewPanel.onDidDispose(() => {
+        this.webviewPanel = undefined;
+        this.currentResourceRoots.clear();
+        // Limpar histórico APENAS se não estiver navegando (usuário fechou)
+        if (!this.isNavigating) {
+          this.navigationHistory = [];
+          this.navigationIndex = -1;
+        }
+      });
+
+      this.setupMessageHandlers();
+    } else {
+      // Apenas atualizar título
+      this.webviewPanel.title = `Flow Test Results - ${title}`;
+    }
 
     try {
       let htmlContent = await fs.promises.readFile(htmlPath, 'utf8');
@@ -587,28 +630,72 @@ export class HtmlResultsService {
       htmlContent = this.processHtmlContent(htmlContent, htmlPath);
 
       this.webviewPanel.webview.html = htmlContent;
-
-      this.webviewPanel.onDidDispose(() => {
-        this.webviewPanel = undefined;
-      });
-
-      this.webviewPanel.webview.onDidReceiveMessage(async (message) => {
-        switch (message.command) {
-          case 'refresh':
-            await this.displayHtmlResults(htmlPath, title);
-            break;
-          case 'openFile':
-            if (message.path) {
-              const uri = vscode.Uri.file(message.path);
-              await vscode.window.showTextDocument(uri);
-            }
-            break;
-        }
-      });
-
     } catch (error) {
       this.webviewPanel.webview.html = this.getErrorHtml(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  private setupMessageHandlers(): void {
+    if (!this.webviewPanel) return;
+
+    this.webviewPanel.webview.onDidReceiveMessage(async (message) => {
+      switch (message.command) {
+        case 'navigateToReport':
+          if (message.path) {
+            // Normalizar o caminho (converter / para separador do sistema)
+            const normalizedPath = path.normalize(message.path);
+            // Verificar se o arquivo existe
+            if (await this.fileExists(normalizedPath)) {
+              await this.displayHtmlResults(normalizedPath, path.basename(normalizedPath, '.html'), true);
+            } else {
+              vscode.window.showWarningMessage(`Report file not found: ${normalizedPath}`);
+            }
+          }
+          break;
+        case 'navigateBack':
+          if (this.navigationIndex > 0) {
+            this.navigationIndex--;
+            const previousPath = this.navigationHistory[this.navigationIndex];
+            await this.displayHtmlResults(previousPath, path.basename(previousPath, '.html'), false);
+          }
+          break;
+        case 'navigateForward':
+          if (this.navigationIndex < this.navigationHistory.length - 1) {
+            this.navigationIndex++;
+            const nextPath = this.navigationHistory[this.navigationIndex];
+            await this.displayHtmlResults(nextPath, path.basename(nextPath, '.html'), false);
+          }
+          break;
+        case 'rerunAndShowReport':
+          if (this.testRunner) {
+            const lastState = this.testRunner.getLastExecutionState();
+            if (!lastState) {
+              vscode.window.showWarningMessage('No previous test execution found');
+              break;
+            }
+
+            await this.testRunner.retestLast();
+
+            // Aguardar um pouco para o relatório ser gerado
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Recarregar o relatório atualizado
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (workspaceFolder) {
+              await this.showResults(workspaceFolder.uri.fsPath);
+            }
+          } else {
+            vscode.window.showWarningMessage('Test runner not available');
+          }
+          break;
+        case 'openFile':
+          if (message.path) {
+            const uri = vscode.Uri.file(message.path);
+            await vscode.window.showTextDocument(uri);
+          }
+          break;
+      }
+    });
   }
 
   private processHtmlContent(htmlContent: string, htmlPath: string): string {
@@ -651,10 +738,56 @@ export class HtmlResultsService {
       }
     );
 
-    const refreshButton = `
-      <div style="position: fixed; top: 10px; right: 10px; z-index: 1000;">
-        <button onclick="refreshResults()" style="
-          background: #007acc;
+    // Processar links <a href> para navegação entre relatórios
+    htmlContent = htmlContent.replace(
+      /<a\s+([^>]*href\s*=\s*["']([^"']+)["'][^>]*)>/gi,
+      (match, attrs, href) => {
+        // Pular links externos e âncoras
+        if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {
+          return match;
+        }
+        // Processar apenas links .html
+        if (href.endsWith('.html')) {
+          const resourcePath = path.resolve(htmlDir, href);
+          const resourceUri = webview.asWebviewUri(vscode.Uri.file(resourcePath));
+          return `<a ${attrs.replace(href, resourceUri.toString())} data-report-link="${resourcePath}">`;
+        }
+        return match;
+      }
+    );
+
+    const canGoBack = this.navigationIndex > 0;
+    const canGoForward = this.navigationIndex < this.navigationHistory.length - 1;
+    const currentDir = path.dirname(htmlPath).replace(/\\/g, '/');
+
+    const navigationBar = `
+      <div style="position: fixed; top: 10px; right: 10px; z-index: 1000; display: flex; gap: 4px;">
+        <button onclick="navigateBack()" id="backBtn" ${!canGoBack ? 'disabled' : ''} style="
+          background: ${canGoBack ? '#007acc' : '#6c757d'};
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 4px;
+          cursor: ${canGoBack ? 'pointer' : 'not-allowed'};
+          font-size: 12px;
+          opacity: ${canGoBack ? '1' : '0.5'};
+        ">
+          ← Voltar
+        </button>
+        <button onclick="navigateForward()" id="forwardBtn" ${!canGoForward ? 'disabled' : ''} style="
+          background: ${canGoForward ? '#007acc' : '#6c757d'};
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 4px;
+          cursor: ${canGoForward ? 'pointer' : 'not-allowed'};
+          font-size: 12px;
+          opacity: ${canGoForward ? '1' : '0.5'};
+        ">
+          Avançar →
+        </button>
+        <button onclick="rerunWithCache()" style="
+          background: #28a745;
           color: white;
           border: none;
           padding: 8px 16px;
@@ -662,32 +795,95 @@ export class HtmlResultsService {
           cursor: pointer;
           font-size: 12px;
         ">
-          🔄 Refresh
+          ⚡ Rerun with Cache
         </button>
       </div>
       <script>
         const vscode = acquireVsCodeApi();
-        function refreshResults() {
-          vscode.postMessage({ command: 'refresh' });
+        const CURRENT_DIR = ${JSON.stringify(currentDir)};
+
+        function navigateBack() {
+          vscode.postMessage({ command: 'navigateBack' });
         }
 
+        function navigateForward() {
+          vscode.postMessage({ command: 'navigateForward' });
+        }
+
+        function rerunWithCache() {
+          vscode.postMessage({ command: 'rerunAndShowReport' });
+        }
+
+        // Prevenir TODOS os links de abrirem no navegador
         document.addEventListener('click', (event) => {
-          const target = event.target;
-          if (target.tagName === 'A' && target.href && target.href.startsWith('file://')) {
-            event.preventDefault();
+          const target = event.target.closest('a');
+          if (!target) return;
+
+          // Permitir links com target="_blank" (abrir externamente)
+          if (target.getAttribute('target') === '_blank') {
+            return true;
+          }
+
+          // Prevenir comportamento padrão para todos os outros links
+          event.preventDefault();
+          event.stopPropagation();
+
+          const href = target.getAttribute('href') || target.href || '';
+
+          // Navegação entre relatórios HTML - verificar se tem data-report-link primeiro
+          if (target.hasAttribute('data-report-link')) {
+            const reportPath = target.getAttribute('data-report-link');
+            vscode.postMessage({
+              command: 'navigateToReport',
+              path: reportPath
+            });
+            return false;
+          }
+
+          // Links .html relativos (como "outro.html" ou "./subdir/test.html")
+          if (href && (href.endsWith('.html') || href.includes('.html?') || href.includes('.html#'))) {
+            let fullPath = href;
+
+            // Se for um link relativo, resolver o caminho completo
+            if (!href.startsWith('/') && !href.match(/^[a-zA-Z]:/)) {
+              fullPath = CURRENT_DIR + '/' + href;
+            }
+
+            // Remover query strings e hashes
+            fullPath = fullPath.split('?')[0].split('#')[0];
+
+            vscode.postMessage({
+              command: 'navigateToReport',
+              path: fullPath
+            });
+            return false;
+          }
+
+          // Links externos (http/https)
+          if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+            // Bloquear - já não tem target="_blank"
+            return false;
+          }
+
+          // Abrir arquivos de código no editor
+          if (href && href.startsWith('file://')) {
             vscode.postMessage({
               command: 'openFile',
-              path: target.href.replace('file://', '')
+              path: href.replace('file://', '')
             });
+            return false;
           }
-        });
+
+          // Qualquer outro link - prevenir
+          return false;
+        }, true);
       </script>
     `;
 
     if (htmlContent.includes('</body>')) {
-      htmlContent = htmlContent.replace('</body>', `${refreshButton}</body>`);
+      htmlContent = htmlContent.replace('</body>', `${navigationBar}</body>`);
     } else {
-      htmlContent += refreshButton;
+      htmlContent += navigationBar;
     }
 
     return htmlContent;

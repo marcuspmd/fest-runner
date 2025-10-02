@@ -36,6 +36,13 @@ export class TestScanner {
 
     for (const workspaceFolder of vscode.workspace.workspaceFolders) {
       const workspacePath = workspaceFolder.uri.fsPath;
+
+      // Verificar se existe arquivo de config antes de fazer qualquer varredura
+      const hasConfig = await this.configService.hasConfigFile(workspacePath);
+      if (!hasConfig) {
+        continue;
+      }
+
       let config: FlowTestConfig;
 
       try {
@@ -120,6 +127,13 @@ export class TestScanner {
 
     for (const workspaceFolder of vscode.workspace.workspaceFolders) {
       const workspacePath = workspaceFolder.uri.fsPath;
+
+      // Verificar se existe arquivo de config antes de fazer qualquer varredura
+      const hasConfig = await this.configService.hasConfigFile(workspacePath);
+      if (!hasConfig) {
+        continue;
+      }
+
       let config: FlowTestConfig;
 
       try {

@@ -19,6 +19,9 @@ export function activate(context: vscode.ExtensionContext) {
   const graphService = GraphService.getInstance();
   const importExportService = ImportExportService.getInstance();
 
+  // Injetar TestRunner no HtmlResultsService para funcionalidade de rerun
+  htmlResultsService.setTestRunner(testRunner);
+
   vscode.window.registerTreeDataProvider("flowTestExplorer", testProvider);
 
   const commands = [
@@ -184,6 +187,30 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
     ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.rerunLast",
+      async () => {
+        await testRunner.retestLast();
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.rerunCache",
+      async () => {
+        await testRunner.retestLast();
+      }
+    ),
+
+    vscode.commands.registerCommand("flow-test-runner.report", async () => {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        vscode.window.showErrorMessage("No workspace folder found");
+        return;
+      }
+
+      await htmlResultsService.showResults(workspaceFolder.uri.fsPath);
+    }),
   ];
 
   context.subscriptions.push(
@@ -540,6 +567,13 @@ async function hasFlowTestFiles(
 
   for (const workspaceFolder of vscode.workspace.workspaceFolders) {
     const workspacePath = workspaceFolder.uri.fsPath;
+
+    // Verificar se existe arquivo de config antes de fazer qualquer varredura
+    const hasConfig = await configService.hasConfigFile(workspacePath);
+    if (!hasConfig) {
+      continue;
+    }
+
     let config: FlowTestConfig;
 
     try {
