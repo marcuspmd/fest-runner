@@ -528,7 +528,7 @@ export class HtmlTemplate {
 
         const stepData = {
           id: stepId,
-          name: \`Step \${stepCounter}\`,
+          name: 'Step ' + stepCounter,
           type: 'request',
           method: 'GET',
           asserts: [],
@@ -822,7 +822,7 @@ export class HtmlTemplate {
       };
 
       window.addKeyValueRow = function(stepId, type) {
-        const container = document.querySelector(\`[data-step="\${stepId}"][data-type="\${type}"]\`);
+        const container = document.querySelector('[data-step="' + stepId + '"][data-type="' + type + '"]');
         if (!container) return;
 
         const row = document.createElement('div');
@@ -860,7 +860,7 @@ export class HtmlTemplate {
       };
 
       window.addAssert = function(stepId) {
-        const container = document.getElementById(\`asserts-container-\${stepId}\`);
+        const container = document.getElementById('asserts-container-' + stepId);
         if (!container) return;
 
         const assertId = window.generateId();
@@ -883,7 +883,7 @@ export class HtmlTemplate {
       };
 
       window.addCapture = function(stepId) {
-        const container = document.getElementById(\`captures-container-\${stepId}\`);
+        const container = document.getElementById('captures-container-' + stepId);
         if (!container) return;
 
         const captureId = window.generateId();
@@ -968,7 +968,7 @@ export class HtmlTemplate {
             stepData.captures = [];
 
             // Collect step headers
-            stepDiv.querySelectorAll(\`[data-step="\${step.id}"][data-type="headers"] .key-value-row\`).forEach(row => {
+            stepDiv.querySelectorAll('[data-step="' + step.id + '"][data-type="headers"] .key-value-row').forEach(row => {
               const key = row.querySelector('.key-input').value.trim();
               const value = row.querySelector('.value-input').value.trim();
               if (key && value) {
@@ -987,7 +987,7 @@ export class HtmlTemplate {
             }
 
             // Collect asserts
-            const assertsContainer = stepDiv.querySelector(\`#asserts-container-\${step.id}\`);
+            const assertsContainer = stepDiv.querySelector('#asserts-container-' + step.id);
             if (assertsContainer) {
               assertsContainer.querySelectorAll('.key-value-row').forEach(row => {
                 const inputs = row.querySelectorAll('input, select');
@@ -1003,7 +1003,7 @@ export class HtmlTemplate {
             }
 
             // Collect captures
-            const capturesContainer = stepDiv.querySelector(\`#captures-container-\${step.id}\`);
+            const capturesContainer = stepDiv.querySelector('#captures-container-' + step.id);
             if (capturesContainer) {
               capturesContainer.querySelectorAll('.key-value-row').forEach(row => {
                 const inputs = row.querySelectorAll('input');
@@ -1151,7 +1151,7 @@ export class HtmlTemplate {
             });
 
             // Show the relevant config section
-            const activeConfig = stepDiv.querySelector(\`.step-config-\${selectedType}\`);
+            const activeConfig = stepDiv.querySelector('.step-config-' + selectedType);
             if (activeConfig) {
               activeConfig.style.display = 'block';
             }
