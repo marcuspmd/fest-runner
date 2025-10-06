@@ -74,7 +74,7 @@ export class CodeGeneratorService {
     }
     yaml += `\nname: ${config.name}\n`;
     yaml += `version: "${config.version || "1.0"}"\n`;
-    
+
     // Node ID (required field)
     if (config.node_id) {
       yaml += `node_id: "${config.node_id}"\n`;
@@ -146,13 +146,13 @@ export class CodeGeneratorService {
     }
 
     // Step Type (default: request)
-    const stepType = step.type || 'request';
-    if (stepType !== 'request') {
+    const stepType = step.type || "request";
+    if (stepType !== "request") {
       yaml += `${indent}  type: ${stepType}\n`;
     }
 
     // Type-specific configuration
-    if (stepType === 'request') {
+    if (stepType === "request") {
       // Request configuration
       if (step.url) {
         yaml += `${indent}  url: "${step.url}"\n`;
@@ -198,8 +198,7 @@ export class CodeGeneratorService {
           yaml += this._buildYamlCapture(capture, `${indent}    `);
         }
       }
-
-    } else if (stepType === 'input') {
+    } else if (stepType === "input") {
       // Input configuration
       if (step.input && Object.keys(step.input).length > 0) {
         yaml += `${indent}  input:\n`;
@@ -207,18 +206,16 @@ export class CodeGeneratorService {
           yaml += `${indent}    ${key}: ${this._formatYamlValue(value)}\n`;
         }
       }
-
-    } else if (stepType === 'call') {
+    } else if (stepType === "call") {
       // Call configuration
       if (step.call) {
         yaml += `${indent}  call:\n`;
-        yaml += `${indent}    type: ${step.call.type || 'function'}\n`;
+        yaml += `${indent}    type: ${step.call.type || "function"}\n`;
         if (step.call.target) {
           yaml += `${indent}    target: "${step.call.target}"\n`;
         }
       }
-
-    } else if (stepType === 'scenario') {
+    } else if (stepType === "scenario") {
       // Scenario reference
       if (step.scenario) {
         yaml += `${indent}  scenario: "${step.scenario}"\n`;

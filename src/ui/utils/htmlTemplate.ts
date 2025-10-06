@@ -1042,7 +1042,7 @@ export class HtmlTemplate {
             // Call type: collect call configuration
             const callTypeSelect = stepDiv.querySelector('.call-type');
             const callTargetInput = stepDiv.querySelector('.call-target');
-            
+
             stepData.call = {
               type: callTypeSelect?.value || 'function',
               target: callTargetInput?.value.trim() || ''
@@ -1144,18 +1144,18 @@ export class HtmlTemplate {
           stepTypeSelect.addEventListener('change', function() {
             const stepId = this.getAttribute('data-step-id');
             const selectedType = this.value;
-            
+
             // Hide all config sections
             stepDiv.querySelectorAll('.step-config').forEach(config => {
               config.style.display = 'none';
             });
-            
+
             // Show the relevant config section
             const activeConfig = stepDiv.querySelector(\`.step-config-\${selectedType}\`);
             if (activeConfig) {
               activeConfig.style.display = 'block';
             }
-            
+
             // Update step data
             window.updateStepData(stepId, 'type', selectedType);
           });
