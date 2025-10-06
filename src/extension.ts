@@ -9,6 +9,7 @@ import { HtmlResultsService } from "./services/htmlResultsService";
 import { GraphService, GraphGenerationResult } from "./services/graphService";
 import { ImportExportService } from "./services/importExportService";
 import { FlowTestConfig, FlowTestGraphDirection } from "./models/types";
+import { TestMakerPanel } from "./ui/TestMakerPanel";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -25,6 +26,10 @@ export function activate(context: vscode.ExtensionContext) {
   vscode.window.registerTreeDataProvider("flowTestExplorer", testProvider);
 
   const commands = [
+    vscode.commands.registerCommand("flow-test-runner.openTestMaker", () => {
+      TestMakerPanel.createOrShow(context.extensionUri);
+    }),
+
     vscode.commands.registerCommand("flow-test-runner.refresh", () => {
       testProvider.refresh();
     }),

@@ -43,6 +43,12 @@
     },
     "commands": [
       {
+        "command": "flow-test-runner.openTestMaker",
+        "title": "Open Test Maker",
+        "category": "Flow Test Runner",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "flow-test-runner.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
