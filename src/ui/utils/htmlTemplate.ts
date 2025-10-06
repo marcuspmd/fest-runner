@@ -540,174 +540,157 @@ export class HtmlTemplate {
         const stepDiv = document.createElement('div');
         stepDiv.className = 'step';
         stepDiv.id = stepId;
-        stepDiv.innerHTML = \`
-          <div class="step-header">
-            <h3>Step \${stepCounter}</h3>
-            <div class="step-actions">
-              <button class="btn-duplicate-step btn-secondary btn-sm" data-step-id="\${stepId}">Duplicate</button>
-              <button class="btn-remove-step btn-icon" data-step-id="\${stepId}" title="Remove step">×</button>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Step Name *</label>
-              <input type="text" class="step-name" data-step-id="\${stepId}" data-field="name" value="Step \${stepCounter}" placeholder="Step name" />
-            </div>
-
-            <div class="form-group">
-              <label>Step ID (Optional)</label>
-              <input type="text" class="step-step-id" data-step-id="\${stepId}" data-field="step_id" placeholder="step-reference-id" />
-              <small class="hint">Optional: ID for referencing this step from other steps</small>
-            </div>
-
-            <div class="form-group">
-              <label>Step Type</label>
-              <select class="step-type" data-step-id="\${stepId}" data-field="type">
-                <option value="request">HTTP Request</option>
-                <option value="input">Input Variables</option>
-                <option value="call">Call Function/API</option>
-                <option value="scenario">Scenario Reference</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Request Configuration (shown for type: request) -->
-          <div class="step-config step-config-request" data-step-id="\${stepId}">
-            <div class="form-grid">
-              <div class="form-group">
-                <label>HTTP Method</label>
-                <select class="step-method" data-step-id="\${stepId}" data-field="method">
-                  <option value="GET">GET</option>
-                  <option value="POST">POST</option>
-                  <option value="PUT">PUT</option>
-                  <option value="DELETE">DELETE</option>
-                  <option value="PATCH">PATCH</option>
-                </select>
-              </div>
-
-              <div class="form-group" style="grid-column: 1 / -1;">
-                <label>URL Path *</label>
-                <input type="text" class="step-url" data-step-id="\${stepId}" data-field="url" placeholder="/api/endpoint" />
-                <small class="hint">Relative to base URL or absolute URL</small>
-              </div>
-            </div>
-          </div>
-
-          <!-- Input Configuration (shown for type: input) -->
-          <div class="step-config step-config-input" data-step-id="\${stepId}" style="display: none;">
-            <div class="form-group">
-              <label>Input Variables</label>
-              <div class="key-value-container" data-step="\${stepId}" data-type="input">
-                <div class="key-value-row">
-                  <input type="text" placeholder="Variable name" class="key-input" />
-                  <input type="text" placeholder="Variable value" class="value-input" />
-                  <button class="btn-icon btn-remove-row">×</button>
-                </div>
-              </div>
-              <button class="btn-add-kv btn-secondary btn-sm" data-step-id="\${stepId}" data-type="input">+ Add Input</button>
-            </div>
-          </div>
-
-          <!-- Call Configuration (shown for type: call) -->
-          <div class="step-config step-config-call" data-step-id="\${stepId}" style="display: none;">
-            <div class="form-grid">
-              <div class="form-group">
-                <label>Call Type</label>
-                <select class="step-call-type" data-step-id="\${stepId}" data-field="call.type">
-                  <option value="function">Function</option>
-                  <option value="api">API</option>
-                  <option value="step">Step Reference</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label>Target *</label>
-                <input type="text" class="step-call-target" data-step-id="\${stepId}" data-field="call.target" placeholder="function-name or step-id" />
-                <small class="hint">Function name, API endpoint, or step ID to call</small>
-              </div>
-            </div>
-          </div>
-
-          <!-- Scenario Configuration (shown for type: scenario) -->
-          <div class="step-config step-config-scenario" data-step-id="\${stepId}" style="display: none;">
-            <div class="form-group">
-              <label>Scenario Name *</label>
-              <input type="text" class="step-scenario-name" data-step-id="\${stepId}" data-field="scenario" placeholder="scenario-name" />
-              <small class="hint">Reference to a scenario defined in the test</small>
-            </div>
-          </div>
-
-          <!-- Tabs for advanced options -->
-          <div class="tab-container">
-            <div class="tab-buttons">
-              <button class="tab-button active" data-tab-id="headers-\${stepId}">Headers</button>
-              <button class="tab-button" data-tab-id="body-\${stepId}">Body</button>
-              <button class="tab-button" data-tab-id="asserts-\${stepId}">Asserts</button>
-              <button class="tab-button" data-tab-id="captures-\${stepId}">Captures</button>
-              <button class="tab-button" data-tab-id="advanced-\${stepId}">Advanced</button>
-            </div>
-          </div>
-
-          <!-- Headers Tab -->
-          <div id="headers-\${stepId}" class="tab-content active">
-            <div class="form-group">
-              <label>Request Headers</label>
-              <div class="key-value-container" data-step="\${stepId}" data-type="headers">
-                <div class="key-value-row">
-                  <input type="text" placeholder="Header name" class="key-input" />
-                  <input type="text" placeholder="Header value" class="value-input" />
-                  <button class="btn-icon btn-remove-row">×</button>
-                </div>
-              </div>
-              <button class="btn-add-kv btn-secondary btn-sm" data-step-id="\${stepId}" data-type="headers">+ Add Header</button>
-            </div>
-          </div>
-
-          <!-- Body Tab -->
-          <div id="body-\${stepId}" class="tab-content">
-            <div class="form-group">
-              <label>Request Body (JSON)</label>
-              <textarea class="step-body" data-step-id="\${stepId}" data-field="body" rows="6" placeholder='{\n  "key": "value"\n}'></textarea>
-            </div>
-          </div>
-
-          <!-- Asserts Tab -->
-          <div id="asserts-\${stepId}" class="tab-content">
-            <div class="form-group">
-              <label>Assertions</label>
-              <div id="asserts-container-\${stepId}" class="asserts-container">
-                <!-- Asserts will be added here -->
-              </div>
-              <button class="btn-add-assert btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Assert</button>
-            </div>
-          </div>
-
-          <!-- Captures Tab -->
-          <div id="captures-\${stepId}" class="tab-content">
-            <div class="form-group">
-              <label>Captures (Extract Variables)</label>
-              <div id="captures-container-\${stepId}" class="captures-container">
-                <!-- Captures will be added here -->
-              </div>
-              <button class="btn-add-capture btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Capture</button>
-            </div>
-          </div>
-
-          <!-- Advanced Tab -->
-          <div id="advanced-\${stepId}" class="tab-content">
-            <div class="form-grid">
-              <div class="form-group">
-                <label>Timeout (ms)</label>
-                <input type="number" class="step-timeout" data-step-id="\${stepId}" data-field="timeout" placeholder="5000" />
-              </div>
-              <div class="form-group">
-                <label>Retries</label>
-                <input type="number" class="step-retries" data-step-id="\${stepId}" data-field="retries" placeholder="0" />
-              </div>
-            </div>
-          </div>
-        \`;
+        stepDiv.innerHTML = '<div class="step-header">' +
+          '<h3>Step ' + stepCounter + '</h3>' +
+          '<div class="step-actions">' +
+            '<button class="btn-duplicate-step btn-secondary btn-sm" data-step-id="' + stepId + '">Duplicate</button>' +
+            '<button class="btn-remove-step btn-icon" data-step-id="' + stepId + '" title="Remove step">×</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-grid">' +
+          '<div class="form-group">' +
+            '<label>Step Name *</label>' +
+            '<input type="text" class="step-name" data-step-id="' + stepId + '" data-field="name" value="Step ' + stepCounter + '" placeholder="Step name" />' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>Step ID (Optional)</label>' +
+            '<input type="text" class="step-id" data-step-id="' + stepId + '" data-field="step_id" placeholder="step-reference-id" />' +
+            '<small class="hint">Optional: ID for referencing this step from other steps</small>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>Step Type</label>' +
+            '<select class="step-type" data-step-id="' + stepId + '" data-field="type">' +
+              '<option value="request">HTTP Request</option>' +
+              '<option value="input">Input Variables</option>' +
+              '<option value="call">Call Function/API</option>' +
+              '<option value="scenario">Scenario Reference</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Request Configuration (shown for type: request) -->' +
+        '<div class="step-config step-config-request" data-step-id="' + stepId + '">' +
+          '<div class="form-grid">' +
+            '<div class="form-group">' +
+              '<label>HTTP Method</label>' +
+              '<select class="step-method" data-step-id="' + stepId + '" data-field="method">' +
+                '<option value="GET">GET</option>' +
+                '<option value="POST">POST</option>' +
+                '<option value="PUT">PUT</option>' +
+                '<option value="DELETE">DELETE</option>' +
+                '<option value="PATCH">PATCH</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group" style="grid-column: 1 / -1;">' +
+              '<label>URL Path *</label>' +
+              '<input type="text" class="step-url" data-step-id="' + stepId + '" data-field="url" placeholder="/api/endpoint" />' +
+              '<small class="hint">Relative to base URL or absolute URL</small>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Input Configuration (shown for type: input) -->' +
+        '<div class="step-config step-config-input" data-step-id="' + stepId + '" style="display: none;">' +
+          '<div class="form-group">' +
+            '<label>Input Variables</label>' +
+            '<div class="key-value-container" data-step="' + stepId + '" data-type="input">' +
+              '<div class="key-value-row">' +
+                '<input type="text" placeholder="Variable name" class="key-input" />' +
+                '<input type="text" placeholder="Variable value" class="value-input" />' +
+                '<button class="btn-icon btn-remove-row">×</button>' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-add-kv btn-secondary btn-sm" data-step-id="' + stepId + '" data-type="input">+ Add Input</button>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Call Configuration (shown for type: call) -->' +
+        '<div class="step-config step-config-call" data-step-id="' + stepId + '" style="display: none;">' +
+          '<div class="form-grid">' +
+            '<div class="form-group">' +
+              '<label>Call Type</label>' +
+              '<select class="call-type" data-step-id="' + stepId + '" data-field="call.type">' +
+                '<option value="function">Function</option>' +
+                '<option value="api">API</option>' +
+                '<option value="step">Step Reference</option>' +
+              '</select>' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label>Target *</label>' +
+              '<input type="text" class="call-target" data-step-id="' + stepId + '" data-field="call.target" placeholder="function-name or step-id" />' +
+              '<small class="hint">Function name, API endpoint, or step ID to call</small>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Scenario Configuration (shown for type: scenario) -->' +
+        '<div class="step-config step-config-scenario" data-step-id="' + stepId + '" style="display: none;">' +
+          '<div class="form-group">' +
+            '<label>Scenario Name *</label>' +
+            '<input type="text" class="scenario-name" data-step-id="' + stepId + '" data-field="scenario" placeholder="scenario-name" />' +
+            '<small class="hint">Reference to a scenario defined in the test</small>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Tabs for advanced options -->' +
+        '<div class="tab-container">' +
+          '<div class="tab-buttons">' +
+            '<button class="tab-button active" data-tab-id="headers-' + stepId + '">Headers</button>' +
+            '<button class="tab-button" data-tab-id="body-' + stepId + '">Body</button>' +
+            '<button class="tab-button" data-tab-id="asserts-' + stepId + '">Asserts</button>' +
+            '<button class="tab-button" data-tab-id="captures-' + stepId + '">Captures</button>' +
+            '<button class="tab-button" data-tab-id="advanced-' + stepId + '">Advanced</button>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Headers Tab -->' +
+        '<div id="headers-' + stepId + '" class="tab-content active">' +
+          '<div class="form-group">' +
+            '<label>Request Headers</label>' +
+            '<div class="key-value-container" data-step="' + stepId + '" data-type="headers">' +
+              '<div class="key-value-row">' +
+                '<input type="text" placeholder="Header name" class="key-input" />' +
+                '<input type="text" placeholder="Header value" class="value-input" />' +
+                '<button class="btn-icon btn-remove-row">×</button>' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-add-kv btn-secondary btn-sm" data-step-id="' + stepId + '" data-type="headers">+ Add Header</button>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Body Tab -->' +
+        '<div id="body-' + stepId + '" class="tab-content">' +
+          '<div class="form-group">' +
+            '<label>Request Body (JSON)</label>' +
+            '<textarea class="step-body" data-step-id="' + stepId + '" data-field="body" rows="6" placeholder=\'{"key": "value"}\'></textarea>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Asserts Tab -->' +
+        '<div id="asserts-' + stepId + '" class="tab-content">' +
+          '<div class="form-group">' +
+            '<label>Assertions</label>' +
+            '<div id="asserts-container-' + stepId + '" class="asserts-container">' +
+              '<!-- Asserts will be added here -->' +
+            '</div>' +
+            '<button class="btn-add-assert btn-secondary btn-sm" data-step-id="' + stepId + '">+ Add Assert</button>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Captures Tab -->' +
+        '<div id="captures-' + stepId + '" class="tab-content">' +
+          '<div class="form-group">' +
+            '<label>Captures (Extract Variables)</label>' +
+            '<div id="captures-container-' + stepId + '" class="captures-container">' +
+              '<!-- Captures will be added here -->' +
+            '</div>' +
+            '<button class="btn-add-capture btn-secondary btn-sm" data-step-id="' + stepId + '">+ Add Capture</button>' +
+          '</div>' +
+        '</div>' +
+        '<!-- Advanced Tab -->' +
+        '<div id="advanced-' + stepId + '" class="tab-content">' +
+          '<div class="form-grid">' +
+            '<div class="form-group">' +
+              '<label>Timeout (ms)</label>' +
+              '<input type="number" class="step-timeout" data-step-id="' + stepId + '" data-field="timeout" placeholder="5000" />' +
+            '</div>' +
+            '<div class="form-group">' +
+              '<label>Retries</label>' +
+              '<input type="number" class="step-retries" data-step-id="' + stepId + '" data-field="retries" placeholder="0" />' +
+            '</div>' +
+          '</div>' +
+        '</div>';
 
         container.appendChild(stepDiv);
 
