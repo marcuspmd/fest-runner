@@ -10,7 +10,7 @@ The Flow Test Maker is a powerful visual interface for creating comprehensive te
 
 There are several ways to open the Test Maker:
 
-1. **Command Palette**: 
+1. **Command Palette**:
    - Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
    - Type "Open Test Maker"
    - Select "Flow Test Runner: Open Test Maker"

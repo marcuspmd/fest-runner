@@ -11,7 +11,9 @@ export class HtmlTemplate {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
+        webview.cspSource
+      } 'unsafe-inline'; script-src 'nonce-${nonce}';">
       <title>Flow Test Maker</title>
       ${this.getStyles()}
     </head>
@@ -26,8 +28,14 @@ export class HtmlTemplate {
           <!-- Test Configuration Section -->
           <section class="section">
             <h2>📋 Test Configuration</h2>
-            
+
             <div class="form-grid">
+              <div class="form-group">
+                <label for="nodeId">Node ID *</label>
+                <input type="text" id="nodeId" placeholder="unique-node-id" required />
+                <small class="hint">Required: Unique identifier for this test node in the system</small>
+              </div>
+
               <div class="form-group">
                 <label for="testName">Test Name *</label>
                 <input type="text" id="testName" placeholder="My API Test" required />
@@ -61,10 +69,10 @@ export class HtmlTemplate {
                 <div class="key-value-row">
                   <input type="text" placeholder="Header name" class="key-input" />
                   <input type="text" placeholder="Header value" class="value-input" />
-                  <button class="btn-icon" onclick="removeRow(this)">×</button>
+                  <button class="btn-icon btn-remove-row">×</button>
                 </div>
               </div>
-              <button class="btn-secondary btn-sm" onclick="addGlobalHeader()">+ Add Header</button>
+              <button id="btn-add-global-header" class="btn-secondary btn-sm">+ Add Header</button>
             </div>
           </section>
 
@@ -72,9 +80,9 @@ export class HtmlTemplate {
           <section class="section">
             <div class="section-header">
               <h2>🔄 Test Steps</h2>
-              <button class="btn-primary" onclick="addStep()">+ Add Step</button>
+              <button id="btn-add-step" class="btn-primary">+ Add Step</button>
             </div>
-            
+
             <div id="steps-container" class="steps-container">
               <!-- Steps will be dynamically added here -->
             </div>
@@ -82,13 +90,13 @@ export class HtmlTemplate {
 
           <!-- Actions Section -->
           <section class="actions-section">
-            <button class="btn-primary btn-lg" onclick="generateTest()">
+            <button id="btn-generate-test" class="btn-primary btn-lg">
               <span>⚡</span> Generate Test
             </button>
-            <button class="btn-secondary btn-lg" onclick="saveDraft()">
+            <button id="btn-save-draft" class="btn-secondary btn-lg">
               <span>💾</span> Save Draft
             </button>
-            <button class="btn-secondary btn-lg" onclick="loadDraft()">
+            <button id="btn-load-draft" class="btn-secondary btn-lg">
               <span>📂</span> Load Draft
             </button>
           </section>
@@ -98,10 +106,10 @@ export class HtmlTemplate {
             <div class="section-header">
               <h2>📝 Generated Test</h2>
               <div class="button-group">
-                <button class="btn-secondary btn-sm" onclick="copyToClipboard()">
+                <button id="btn-copy-clipboard" class="btn-secondary btn-sm">
                   <span>📋</span> Copy
                 </button>
-                <button class="btn-secondary btn-sm" onclick="saveToFile()">
+                <button id="btn-save-file" class="btn-secondary btn-sm">
                   <span>💾</span> Save to File
                 </button>
               </div>
@@ -508,23 +516,25 @@ export class HtmlTemplate {
         addStep();
       });
 
-      function generateId() {
+      window.generateId = function() {
         return 'step_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      }
+      };
 
-      function addStep() {
+      window.addStep = function() {
         stepCounter++;
-        const stepId = generateId();
+        const stepId = window.generateId();
         const container = document.getElementById('steps-container');
-        
+        if (!container) return;
+
         const stepData = {
           id: stepId,
           name: \`Step \${stepCounter}\`,
+          type: 'request',
           method: 'GET',
           asserts: [],
           captures: []
         };
-        
+
         steps.push(stepData);
 
         const stepDiv = document.createElement('div');
@@ -534,43 +544,108 @@ export class HtmlTemplate {
           <div class="step-header">
             <h3>Step \${stepCounter}</h3>
             <div class="step-actions">
-              <button class="btn-secondary btn-sm" onclick="duplicateStep('\${stepId}')">Duplicate</button>
-              <button class="btn-icon" onclick="removeStep('\${stepId}')" title="Remove step">×</button>
+              <button class="btn-duplicate-step btn-secondary btn-sm" data-step-id="\${stepId}">Duplicate</button>
+              <button class="btn-remove-step btn-icon" data-step-id="\${stepId}" title="Remove step">×</button>
             </div>
           </div>
 
           <div class="form-grid">
             <div class="form-group">
               <label>Step Name *</label>
-              <input type="text" class="step-name" value="Step \${stepCounter}" placeholder="Step name" onchange="updateStepData('\${stepId}', 'name', this.value)" />
+              <input type="text" class="step-name" data-step-id="\${stepId}" data-field="name" value="Step \${stepCounter}" placeholder="Step name" />
             </div>
 
             <div class="form-group">
-              <label>HTTP Method</label>
-              <select class="step-method" onchange="updateStepData('\${stepId}', 'method', this.value)">
-                <option value="GET">GET</option>
-                <option value="POST">POST</option>
-                <option value="PUT">PUT</option>
-                <option value="DELETE">DELETE</option>
-                <option value="PATCH">PATCH</option>
-              </select>
+              <label>Step ID (Optional)</label>
+              <input type="text" class="step-step-id" data-step-id="\${stepId}" data-field="step_id" placeholder="step-reference-id" />
+              <small class="hint">Optional: ID for referencing this step from other steps</small>
             </div>
 
-            <div class="form-group" style="grid-column: 1 / -1;">
-              <label>URL Path *</label>
-              <input type="text" class="step-url" placeholder="/api/endpoint" onchange="updateStepData('\${stepId}', 'url', this.value)" />
-              <small class="hint">Relative to base URL or absolute URL</small>
+            <div class="form-group">
+              <label>Step Type</label>
+              <select class="step-type" data-step-id="\${stepId}" data-field="type">
+                <option value="request">HTTP Request</option>
+                <option value="input">Input Variables</option>
+                <option value="call">Call Function/API</option>
+                <option value="scenario">Scenario Reference</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Request Configuration (shown for type: request) -->
+          <div class="step-config step-config-request" data-step-id="\${stepId}">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>HTTP Method</label>
+                <select class="step-method" data-step-id="\${stepId}" data-field="method">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                  <option value="PATCH">PATCH</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>URL Path *</label>
+                <input type="text" class="step-url" data-step-id="\${stepId}" data-field="url" placeholder="/api/endpoint" />
+                <small class="hint">Relative to base URL or absolute URL</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Configuration (shown for type: input) -->
+          <div class="step-config step-config-input" data-step-id="\${stepId}" style="display: none;">
+            <div class="form-group">
+              <label>Input Variables</label>
+              <div class="key-value-container" data-step="\${stepId}" data-type="input">
+                <div class="key-value-row">
+                  <input type="text" placeholder="Variable name" class="key-input" />
+                  <input type="text" placeholder="Variable value" class="value-input" />
+                  <button class="btn-icon btn-remove-row">×</button>
+                </div>
+              </div>
+              <button class="btn-add-kv btn-secondary btn-sm" data-step-id="\${stepId}" data-type="input">+ Add Input</button>
+            </div>
+          </div>
+
+          <!-- Call Configuration (shown for type: call) -->
+          <div class="step-config step-config-call" data-step-id="\${stepId}" style="display: none;">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Call Type</label>
+                <select class="step-call-type" data-step-id="\${stepId}" data-field="call.type">
+                  <option value="function">Function</option>
+                  <option value="api">API</option>
+                  <option value="step">Step Reference</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Target *</label>
+                <input type="text" class="step-call-target" data-step-id="\${stepId}" data-field="call.target" placeholder="function-name or step-id" />
+                <small class="hint">Function name, API endpoint, or step ID to call</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scenario Configuration (shown for type: scenario) -->
+          <div class="step-config step-config-scenario" data-step-id="\${stepId}" style="display: none;">
+            <div class="form-group">
+              <label>Scenario Name *</label>
+              <input type="text" class="step-scenario-name" data-step-id="\${stepId}" data-field="scenario" placeholder="scenario-name" />
+              <small class="hint">Reference to a scenario defined in the test</small>
             </div>
           </div>
 
           <!-- Tabs for advanced options -->
           <div class="tab-container">
             <div class="tab-buttons">
-              <button class="tab-button active" onclick="switchTab(this, 'headers-\${stepId}')">Headers</button>
-              <button class="tab-button" onclick="switchTab(this, 'body-\${stepId}')">Body</button>
-              <button class="tab-button" onclick="switchTab(this, 'asserts-\${stepId}')">Asserts</button>
-              <button class="tab-button" onclick="switchTab(this, 'captures-\${stepId}')">Captures</button>
-              <button class="tab-button" onclick="switchTab(this, 'advanced-\${stepId}')">Advanced</button>
+              <button class="tab-button active" data-tab-id="headers-\${stepId}">Headers</button>
+              <button class="tab-button" data-tab-id="body-\${stepId}">Body</button>
+              <button class="tab-button" data-tab-id="asserts-\${stepId}">Asserts</button>
+              <button class="tab-button" data-tab-id="captures-\${stepId}">Captures</button>
+              <button class="tab-button" data-tab-id="advanced-\${stepId}">Advanced</button>
             </div>
           </div>
 
@@ -582,10 +657,10 @@ export class HtmlTemplate {
                 <div class="key-value-row">
                   <input type="text" placeholder="Header name" class="key-input" />
                   <input type="text" placeholder="Header value" class="value-input" />
-                  <button class="btn-icon" onclick="removeRow(this)">×</button>
+                  <button class="btn-icon btn-remove-row">×</button>
                 </div>
               </div>
-              <button class="btn-secondary btn-sm" onclick="addKeyValueRow('\${stepId}', 'headers')">+ Add Header</button>
+              <button class="btn-add-kv btn-secondary btn-sm" data-step-id="\${stepId}" data-type="headers">+ Add Header</button>
             </div>
           </div>
 
@@ -593,7 +668,7 @@ export class HtmlTemplate {
           <div id="body-\${stepId}" class="tab-content">
             <div class="form-group">
               <label>Request Body (JSON)</label>
-              <textarea class="step-body" rows="6" placeholder='{\n  "key": "value"\n}' onchange="updateStepData('\${stepId}', 'body', this.value)"></textarea>
+              <textarea class="step-body" data-step-id="\${stepId}" data-field="body" rows="6" placeholder='{\n  "key": "value"\n}'></textarea>
             </div>
           </div>
 
@@ -604,7 +679,7 @@ export class HtmlTemplate {
               <div id="asserts-container-\${stepId}" class="asserts-container">
                 <!-- Asserts will be added here -->
               </div>
-              <button class="btn-secondary btn-sm" onclick="addAssert('\${stepId}')">+ Add Assert</button>
+              <button class="btn-add-assert btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Assert</button>
             </div>
           </div>
 
@@ -615,7 +690,7 @@ export class HtmlTemplate {
               <div id="captures-container-\${stepId}" class="captures-container">
                 <!-- Captures will be added here -->
               </div>
-              <button class="btn-secondary btn-sm" onclick="addCapture('\${stepId}')">+ Add Capture</button>
+              <button class="btn-add-capture btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Capture</button>
             </div>
           </div>
 
@@ -624,74 +699,172 @@ export class HtmlTemplate {
             <div class="form-grid">
               <div class="form-group">
                 <label>Timeout (ms)</label>
-                <input type="number" class="step-timeout" placeholder="5000" onchange="updateStepData('\${stepId}', 'timeout', this.value)" />
+                <input type="number" class="step-timeout" data-step-id="\${stepId}" data-field="timeout" placeholder="5000" />
               </div>
               <div class="form-group">
                 <label>Retries</label>
-                <input type="number" class="step-retries" placeholder="0" onchange="updateStepData('\${stepId}', 'retries', this.value)" />
+                <input type="number" class="step-retries" data-step-id="\${stepId}" data-field="retries" placeholder="0" />
               </div>
             </div>
           </div>
         \`;
-        
-        container.appendChild(stepDiv);
-      }
 
-      function switchTab(button, tabId) {
+        container.appendChild(stepDiv);
+
+        // Attach event listeners for this step
+        attachStepEventListeners(stepDiv, stepId);
+      };
+
+      window.switchTab = function(button, tabId) {
+              <small class="hint">Relative to base URL or absolute URL</small>
+            </div>
+          </div>
+
+          <!-- Tabs for advanced options -->
+          <div class="tab-container">
+            <div class="tab-buttons">
+              <button class="tab-button active" data-tab-id="headers-\${stepId}">Headers</button>
+              <button class="tab-button" data-tab-id="body-\${stepId}">Body</button>
+              <button class="tab-button" data-tab-id="asserts-\${stepId}">Asserts</button>
+              <button class="tab-button" data-tab-id="captures-\${stepId}">Captures</button>
+              <button class="tab-button" data-tab-id="advanced-\${stepId}">Advanced</button>
+            </div>
+          </div>
+
+          <!-- Headers Tab -->
+          <div id="headers-\${stepId}" class="tab-content active">
+            <div class="form-group">
+              <label>Request Headers</label>
+              <div class="key-value-container" data-step="\${stepId}" data-type="headers">
+                <div class="key-value-row">
+                  <input type="text" placeholder="Header name" class="key-input" />
+                  <input type="text" placeholder="Header value" class="value-input" />
+                  <button class="btn-icon btn-remove-row">×</button>
+                </div>
+              </div>
+              <button class="btn-add-kv btn-secondary btn-sm" data-step-id="\${stepId}" data-type="headers">+ Add Header</button>
+            </div>
+          </div>
+
+          <!-- Body Tab -->
+          <div id="body-\${stepId}" class="tab-content">
+            <div class="form-group">
+              <label>Request Body (JSON)</label>
+              <textarea class="step-body" data-step-id="\${stepId}" data-field="body" rows="6" placeholder='{\n  "key": "value"\n}'></textarea>
+            </div>
+          </div>
+
+          <!-- Asserts Tab -->
+          <div id="asserts-\${stepId}" class="tab-content">
+            <div class="form-group">
+              <label>Assertions</label>
+              <div id="asserts-container-\${stepId}" class="asserts-container">
+                <!-- Asserts will be added here -->
+              </div>
+              <button class="btn-add-assert btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Assert</button>
+            </div>
+          </div>
+
+          <!-- Captures Tab -->
+          <div id="captures-\${stepId}" class="tab-content">
+            <div class="form-group">
+              <label>Captures (Extract Variables)</label>
+              <div id="captures-container-\${stepId}" class="captures-container">
+                <!-- Captures will be added here -->
+              </div>
+              <button class="btn-add-capture btn-secondary btn-sm" data-step-id="\${stepId}">+ Add Capture</button>
+            </div>
+          </div>
+
+          <!-- Advanced Tab -->
+          <div id="advanced-\${stepId}" class="tab-content">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Timeout (ms)</label>
+                <input type="number" class="step-timeout" data-step-id="\${stepId}" data-field="timeout" placeholder="5000" />
+              </div>
+              <div class="form-group">
+                <label>Retries</label>
+                <input type="number" class="step-retries" data-step-id="\${stepId}" data-field="retries" placeholder="0" />
+              </div>
+            </div>
+          </div>
+        \`;
+
+        container.appendChild(stepDiv);
+
+        // Attach event listeners for this step
+        attachStepEventListeners(stepDiv, stepId);
+      };
+
+      window.switchTab = function(button, tabId) {
         const stepDiv = button.closest('.step');
+        if (!stepDiv) return;
+
         const allButtons = stepDiv.querySelectorAll('.tab-button');
         const allTabs = stepDiv.querySelectorAll('.tab-content');
-        
+
         allButtons.forEach(btn => btn.classList.remove('active'));
         allTabs.forEach(tab => tab.classList.remove('active'));
-        
-        button.classList.add('active');
-        document.getElementById(tabId).classList.add('active');
-      }
 
-      function updateStepData(stepId, field, value) {
+        button.classList.add('active');
+        const tabElement = document.getElementById(tabId);
+        if (tabElement) {
+          tabElement.classList.add('active');
+        }
+      };
+
+      window.updateStepData = function(stepId, field, value) {
         const step = steps.find(s => s.id === stepId);
         if (step) {
           step[field] = value;
         }
-      }
+      };
 
-      function addKeyValueRow(stepId, type) {
+      window.addKeyValueRow = function(stepId, type) {
         const container = document.querySelector(\`[data-step="\${stepId}"][data-type="\${type}"]\`);
+        if (!container) return;
+
         const row = document.createElement('div');
         row.className = 'key-value-row';
         row.innerHTML = \`
           <input type="text" placeholder="Key" class="key-input" />
           <input type="text" placeholder="Value" class="value-input" />
-          <button class="btn-icon" onclick="removeRow(this)">×</button>
+          <button class="btn-icon btn-remove-row">×</button>
         \`;
         container.appendChild(row);
-      }
+      };
 
-      function removeRow(button) {
+      window.removeRow = function(button) {
         const row = button.closest('.key-value-row');
+        if (!row) return;
+
         const container = row.parentElement;
-        if (container.children.length > 1) {
+        if (container && container.children.length > 1) {
           row.remove();
         }
-      }
+      };
 
-      function addGlobalHeader() {
+      window.addGlobalHeader = function() {
         const container = document.getElementById('globalHeaders');
+        if (!container) return;
+
         const row = document.createElement('div');
         row.className = 'key-value-row';
         row.innerHTML = \`
           <input type="text" placeholder="Header name" class="key-input" />
           <input type="text" placeholder="Header value" class="value-input" />
-          <button class="btn-icon" onclick="removeRow(this)">×</button>
+          <button class="btn-icon btn-remove-row">×</button>
         \`;
         container.appendChild(row);
-      }
+      };
 
-      function addAssert(stepId) {
+      window.addAssert = function(stepId) {
         const container = document.getElementById(\`asserts-container-\${stepId}\`);
-        const assertId = generateId();
-        
+        if (!container) return;
+
+        const assertId = window.generateId();
+
         const assertDiv = document.createElement('div');
         assertDiv.className = 'key-value-row';
         assertDiv.innerHTML = \`
@@ -704,26 +877,28 @@ export class HtmlTemplate {
           </select>
           <input type="text" placeholder="JSON path (e.g., $.data.id)" class="value-input" />
           <input type="text" placeholder="Expected value" class="value-input" />
-          <button class="btn-icon" onclick="removeRow(this)">×</button>
+          <button class="btn-icon btn-remove-row">×</button>
         \`;
         container.appendChild(assertDiv);
-      }
+      };
 
-      function addCapture(stepId) {
+      window.addCapture = function(stepId) {
         const container = document.getElementById(\`captures-container-\${stepId}\`);
-        const captureId = generateId();
-        
+        if (!container) return;
+
+        const captureId = window.generateId();
+
         const captureDiv = document.createElement('div');
         captureDiv.className = 'key-value-row';
         captureDiv.innerHTML = \`
           <input type="text" placeholder="Variable name" class="key-input" />
           <input type="text" placeholder="JSON path (e.g., $.data.token)" class="value-input" />
-          <button class="btn-icon" onclick="removeRow(this)">×</button>
+          <button class="btn-icon btn-remove-row">×</button>
         \`;
         container.appendChild(captureDiv);
-      }
+      };
 
-      function removeStep(stepId) {
+      window.removeStep = function(stepId) {
         const stepDiv = document.getElementById(stepId);
         if (stepDiv && steps.length > 1) {
           stepDiv.remove();
@@ -734,20 +909,21 @@ export class HtmlTemplate {
             payload: 'Cannot remove the last step. At least one step is required.'
           });
         }
-      }
+      };
 
-      function duplicateStep(stepId) {
+      window.duplicateStep = function(stepId) {
         const step = steps.find(s => s.id === stepId);
         if (step) {
           // TODO: Implement step duplication
-          addStep();
+          window.addStep();
         }
-      }
+      };
 
-      function collectFormData() {
+      window.collectFormData = function() {
         const testName = document.getElementById('testName').value;
         const testType = document.getElementById('testType').value;
         const baseUrl = document.getElementById('baseUrl').value;
+        const nodeId = document.getElementById('nodeId').value;
         const description = document.getElementById('description').value;
 
         // Collect global headers
@@ -766,91 +942,137 @@ export class HtmlTemplate {
           const stepDiv = document.getElementById(step.id);
           if (!stepDiv) return;
 
+          // Get step type and step_id
+          const stepType = stepDiv.querySelector('.step-type')?.value || 'request';
+          const stepIdInput = stepDiv.querySelector('.step-id')?.value.trim();
+
+          // Base step data
           const stepData = {
             id: step.id,
             name: stepDiv.querySelector('.step-name').value,
-            url: stepDiv.querySelector('.step-url').value,
-            method: stepDiv.querySelector('.step-method').value,
-            headers: {},
-            asserts: [],
-            captures: []
+            type: stepType
           };
 
-          // Collect step headers
-          stepDiv.querySelectorAll(\`[data-step="\${step.id}"][data-type="headers"] .key-value-row\`).forEach(row => {
-            const key = row.querySelector('.key-input').value.trim();
-            const value = row.querySelector('.value-input').value.trim();
-            if (key && value) {
-              stepData.headers[key] = value;
-            }
-          });
-
-          // Collect body
-          const bodyTextarea = stepDiv.querySelector('.step-body');
-          if (bodyTextarea && bodyTextarea.value.trim()) {
-            try {
-              stepData.body = JSON.parse(bodyTextarea.value);
-            } catch (e) {
-              stepData.body = bodyTextarea.value;
-            }
+          // Add step_id if provided
+          if (stepIdInput) {
+            stepData.step_id = stepIdInput;
           }
 
-          // Collect asserts
-          const assertsContainer = stepDiv.querySelector(\`#asserts-container-\${step.id}\`);
-          if (assertsContainer) {
-            assertsContainer.querySelectorAll('.key-value-row').forEach(row => {
-              const inputs = row.querySelectorAll('input, select');
-              if (inputs.length >= 2) {
-                stepData.asserts.push({
-                  id: generateId(),
-                  type: inputs[0].value,
-                  path: inputs[1].value,
-                  expected: inputs[2] ? inputs[2].value : undefined
-                });
+          // Collect data based on step type
+          if (stepType === 'request') {
+            // Request type: collect HTTP request data
+            stepData.url = stepDiv.querySelector('.step-url').value;
+            stepData.method = stepDiv.querySelector('.step-method').value;
+            stepData.headers = {};
+            stepData.asserts = [];
+            stepData.captures = [];
+
+            // Collect step headers
+            stepDiv.querySelectorAll(\`[data-step="\${step.id}"][data-type="headers"] .key-value-row\`).forEach(row => {
+              const key = row.querySelector('.key-input').value.trim();
+              const value = row.querySelector('.value-input').value.trim();
+              if (key && value) {
+                stepData.headers[key] = value;
               }
             });
-          }
 
-          // Collect captures
-          const capturesContainer = stepDiv.querySelector(\`#captures-container-\${step.id}\`);
-          if (capturesContainer) {
-            capturesContainer.querySelectorAll('.key-value-row').forEach(row => {
-              const inputs = row.querySelectorAll('input');
-              if (inputs.length >= 2 && inputs[0].value && inputs[1].value) {
-                stepData.captures.push({
-                  id: generateId(),
-                  name: inputs[0].value,
-                  path: inputs[1].value,
-                  type: 'json'
-                });
+            // Collect body
+            const bodyTextarea = stepDiv.querySelector('.step-body');
+            if (bodyTextarea && bodyTextarea.value.trim()) {
+              try {
+                stepData.body = JSON.parse(bodyTextarea.value);
+              } catch (e) {
+                stepData.body = bodyTextarea.value;
               }
-            });
-          }
+            }
 
-          // Collect timeout and retries
-          const timeout = stepDiv.querySelector('.step-timeout')?.value;
-          const retries = stepDiv.querySelector('.step-retries')?.value;
-          if (timeout) stepData.timeout = parseInt(timeout);
-          if (retries) stepData.retries = parseInt(retries);
+            // Collect asserts
+            const assertsContainer = stepDiv.querySelector(\`#asserts-container-\${step.id}\`);
+            if (assertsContainer) {
+              assertsContainer.querySelectorAll('.key-value-row').forEach(row => {
+                const inputs = row.querySelectorAll('input, select');
+                if (inputs.length >= 2) {
+                  stepData.asserts.push({
+                    id: generateId(),
+                    type: inputs[0].value,
+                    path: inputs[1].value,
+                    expected: inputs[2] ? inputs[2].value : undefined
+                  });
+                }
+              });
+            }
+
+            // Collect captures
+            const capturesContainer = stepDiv.querySelector(\`#captures-container-\${step.id}\`);
+            if (capturesContainer) {
+              capturesContainer.querySelectorAll('.key-value-row').forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                if (inputs.length >= 2 && inputs[0].value && inputs[1].value) {
+                  stepData.captures.push({
+                    id: generateId(),
+                    name: inputs[0].value,
+                    path: inputs[1].value,
+                    type: 'json'
+                  });
+                }
+              });
+            }
+
+            // Collect timeout and retries
+            const timeout = stepDiv.querySelector('.step-timeout')?.value;
+            const retries = stepDiv.querySelector('.step-retries')?.value;
+            if (timeout) stepData.timeout = parseInt(timeout);
+            if (retries) stepData.retries = parseInt(retries);
+
+          } else if (stepType === 'input') {
+            // Input type: collect input variables
+            stepData.input = {};
+            const inputContainer = stepDiv.querySelector('.step-config-input');
+            if (inputContainer) {
+              inputContainer.querySelectorAll('.key-value-row').forEach(row => {
+                const key = row.querySelector('.key-input').value.trim();
+                const value = row.querySelector('.value-input').value.trim();
+                if (key) {
+                  stepData.input[key] = value;
+                }
+              });
+            }
+
+          } else if (stepType === 'call') {
+            // Call type: collect call configuration
+            const callTypeSelect = stepDiv.querySelector('.call-type');
+            const callTargetInput = stepDiv.querySelector('.call-target');
+            
+            stepData.call = {
+              type: callTypeSelect?.value || 'function',
+              target: callTargetInput?.value.trim() || ''
+            };
+
+          } else if (stepType === 'scenario') {
+            // Scenario type: collect scenario reference
+            const scenarioInput = stepDiv.querySelector('.scenario-name');
+            stepData.scenario = scenarioInput?.value.trim() || '';
+          }
 
           stepsData.push(stepData);
         });
 
         return {
-          id: generateId(),
+          id: window.generateId(),
           name: testName,
           description: description,
           type: testType,
+          node_id: nodeId,
           baseUrl: baseUrl,
           version: '1.0',
           headers: Object.keys(globalHeaders).length > 0 ? globalHeaders : undefined,
           steps: stepsData
         };
-      }
+      };
 
-      function generateTest() {
-        const config = collectFormData();
-        
+      window.generateTest = function() {
+        const config = window.collectFormData();
+
         if (!config.name) {
           vscode.postMessage({
             type: 'error',
@@ -871,38 +1093,174 @@ export class HtmlTemplate {
           type: 'generate-test',
           payload: config
         });
-      }
+      };
 
-      function copyToClipboard() {
+      window.copyToClipboard = function() {
         const output = document.getElementById('output');
+        if (!output) return;
+
         vscode.postMessage({
           type: 'copy-to-clipboard',
           payload: output.textContent
         });
-      }
+      };
 
-      function saveToFile() {
-        const config = collectFormData();
+      window.saveToFile = function() {
+        const config = window.collectFormData();
         vscode.postMessage({
           type: 'save-to-file',
           payload: config
         });
-      }
+      };
 
-      function saveDraft() {
-        const config = collectFormData();
+      window.saveDraft = function() {
+        const config = window.collectFormData();
         vscode.postMessage({
           type: 'save-draft',
           payload: config
         });
-      }
+      };
 
-      function loadDraft() {
+      window.loadDraft = function() {
         vscode.postMessage({
           type: 'load-draft',
           payload: null
         });
+      };
+
+      // Function to attach event listeners to a step
+      function attachStepEventListeners(stepDiv, stepId) {
+        // Tab switching
+        stepDiv.querySelectorAll('.tab-button').forEach(button => {
+          button.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-tab-id');
+            window.switchTab(this, tabId);
+          });
+        });
+
+        // Step type change - show/hide relevant config sections
+        const stepTypeSelect = stepDiv.querySelector('.step-type');
+        if (stepTypeSelect) {
+          stepTypeSelect.addEventListener('change', function() {
+            const stepId = this.getAttribute('data-step-id');
+            const selectedType = this.value;
+            
+            // Hide all config sections
+            stepDiv.querySelectorAll('.step-config').forEach(config => {
+              config.style.display = 'none';
+            });
+            
+            // Show the relevant config section
+            const activeConfig = stepDiv.querySelector(\`.step-config-\${selectedType}\`);
+            if (activeConfig) {
+              activeConfig.style.display = 'block';
+            }
+            
+            // Update step data
+            window.updateStepData(stepId, 'type', selectedType);
+          });
+        }
+
+        // Input changes for step data
+        const inputs = stepDiv.querySelectorAll('[data-step-id][data-field]');
+        inputs.forEach(input => {
+          input.addEventListener('change', function() {
+            const stepId = this.getAttribute('data-step-id');
+            const field = this.getAttribute('data-field');
+            window.updateStepData(stepId, field, this.value);
+          });
+        });
+
+        // Duplicate button
+        const duplicateBtn = stepDiv.querySelector('.btn-duplicate-step');
+        if (duplicateBtn) {
+          duplicateBtn.addEventListener('click', function() {
+            const stepId = this.getAttribute('data-step-id');
+            window.duplicateStep(stepId);
+          });
+        }
+
+        // Remove button
+        const removeBtn = stepDiv.querySelector('.btn-remove-step');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', function() {
+            const stepId = this.getAttribute('data-step-id');
+            window.removeStep(stepId);
+          });
+        }
+
+        // Add header/assert/capture buttons
+        const addKvBtns = stepDiv.querySelectorAll('.btn-add-kv');
+        addKvBtns.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const stepId = this.getAttribute('data-step-id');
+            const type = this.getAttribute('data-type');
+            window.addKeyValueRow(stepId, type);
+          });
+        });
+
+        const addAssertBtn = stepDiv.querySelector('.btn-add-assert');
+        if (addAssertBtn) {
+          addAssertBtn.addEventListener('click', function() {
+            const stepId = this.getAttribute('data-step-id');
+            window.addAssert(stepId);
+          });
+        }
+
+        const addCaptureBtn = stepDiv.querySelector('.btn-add-capture');
+        if (addCaptureBtn) {
+          addCaptureBtn.addEventListener('click', function() {
+            const stepId = this.getAttribute('data-step-id');
+            window.addCapture(stepId);
+          });
+        }
       }
+
+      // Initialize event listeners on page load
+      document.addEventListener('DOMContentLoaded', function() {
+        // Global buttons
+        const btnAddStep = document.getElementById('btn-add-step');
+        if (btnAddStep) {
+          btnAddStep.addEventListener('click', () => window.addStep());
+        }
+
+        const btnAddGlobalHeader = document.getElementById('btn-add-global-header');
+        if (btnAddGlobalHeader) {
+          btnAddGlobalHeader.addEventListener('click', () => window.addGlobalHeader());
+        }
+
+        const btnGenerateTest = document.getElementById('btn-generate-test');
+        if (btnGenerateTest) {
+          btnGenerateTest.addEventListener('click', () => window.generateTest());
+        }
+
+        const btnSaveDraft = document.getElementById('btn-save-draft');
+        if (btnSaveDraft) {
+          btnSaveDraft.addEventListener('click', () => window.saveDraft());
+        }
+
+        const btnLoadDraft = document.getElementById('btn-load-draft');
+        if (btnLoadDraft) {
+          btnLoadDraft.addEventListener('click', () => window.loadDraft());
+        }
+
+        const btnCopyClipboard = document.getElementById('btn-copy-clipboard');
+        if (btnCopyClipboard) {
+          btnCopyClipboard.addEventListener('click', () => window.copyToClipboard());
+        }
+
+        const btnSaveFile = document.getElementById('btn-save-file');
+        if (btnSaveFile) {
+          btnSaveFile.addEventListener('click', () => window.saveToFile());
+        }
+
+        // Event delegation for remove buttons (dynamically added)
+        document.addEventListener('click', function(e) {
+          if (e.target.classList.contains('btn-remove-row')) {
+            window.removeRow(e.target);
+          }
+        });
+      });
 
       // Listen for messages from the extension
       window.addEventListener('message', event => {
@@ -911,7 +1269,7 @@ export class HtmlTemplate {
           case 'test-generated':
             const output = document.getElementById('output');
             const outputSection = document.getElementById('outputSection');
-            
+
             if (message.payload.success) {
               output.textContent = message.payload.code;
               outputSection.style.display = 'block';
@@ -921,7 +1279,7 @@ export class HtmlTemplate {
               outputSection.style.display = 'block';
             }
             break;
-          
+
           case 'draft-loaded':
             if (message.payload) {
               // TODO: Populate form with loaded draft

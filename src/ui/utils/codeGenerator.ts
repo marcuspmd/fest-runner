@@ -1,4 +1,10 @@
-import { TestConfiguration, TestStep, Assert, Capture, GeneratedTest } from '../types';
+import {
+  TestConfiguration,
+  TestStep,
+  Assert,
+  Capture,
+  GeneratedTest,
+} from "../types";
 
 /**
  * Service responsible for generating test code from configuration
@@ -12,19 +18,21 @@ export class CodeGeneratorService {
       const yaml = this._buildYamlTest(config);
       return {
         code: yaml,
-        language: 'yaml',
-        valid: true
+        language: "yaml",
+        valid: true,
       };
     } catch (error: any) {
       return {
-        code: '',
-        language: 'yaml',
+        code: "",
+        language: "yaml",
         valid: false,
-        errors: [{
-          field: 'general',
-          message: error.message,
-          severity: 'error'
-        }]
+        errors: [
+          {
+            field: "general",
+            message: error.message,
+            severity: "error",
+          },
+        ],
       };
     }
   }
@@ -37,19 +45,21 @@ export class CodeGeneratorService {
       const json = JSON.stringify(this._buildJsonTest(config), null, 2);
       return {
         code: json,
-        language: 'json',
-        valid: true
+        language: "json",
+        valid: true,
       };
     } catch (error: any) {
       return {
-        code: '',
-        language: 'json',
+        code: "",
+        language: "json",
         valid: false,
-        errors: [{
-          field: 'general',
-          message: error.message,
-          severity: 'error'
-        }]
+        errors: [
+          {
+            field: "general",
+            message: error.message,
+            severity: "error",
+          },
+        ],
       };
     }
   }
@@ -63,7 +73,12 @@ export class CodeGeneratorService {
       yaml += `# ${config.description}\n`;
     }
     yaml += `\nname: ${config.name}\n`;
-    yaml += `version: "${config.version || '1.0'}"\n`;
+    yaml += `version: "${config.version || "1.0"}"\n`;
+    
+    // Node ID (required field)
+    if (config.node_id) {
+      yaml += `node_id: "${config.node_id}"\n`;
+    }
 
     // Global headers
     if (config.headers && Object.keys(config.headers).length > 0) {
@@ -107,7 +122,7 @@ export class CodeGeneratorService {
         }
         yaml += `    steps:\n`;
         for (const step of scenario.steps) {
-          yaml += this._buildYamlStep(step, '      ');
+          yaml += this._buildYamlStep(step, "      ");
         }
       }
     }
@@ -118,57 +133,99 @@ export class CodeGeneratorService {
   /**
    * Builds a single YAML step
    */
-  private _buildYamlStep(step: TestStep, indent: string = '  '): string {
+  private _buildYamlStep(step: TestStep, indent: string = "  "): string {
     let yaml = `${indent}- name: ${step.name}\n`;
+
+    // Step ID (optional)
+    if (step.step_id) {
+      yaml += `${indent}  step_id: "${step.step_id}"\n`;
+    }
 
     if (step.description) {
       yaml += `${indent}  description: "${step.description}"\n`;
     }
 
-    // Request configuration
-    if (step.url) {
-      yaml += `${indent}  url: "${step.url}"\n`;
+    // Step Type (default: request)
+    const stepType = step.type || 'request';
+    if (stepType !== 'request') {
+      yaml += `${indent}  type: ${stepType}\n`;
     }
 
-    if (step.method) {
-      yaml += `${indent}  method: ${step.method}\n`;
-    }
+    // Type-specific configuration
+    if (stepType === 'request') {
+      // Request configuration
+      if (step.url) {
+        yaml += `${indent}  url: "${step.url}"\n`;
+      }
 
-    if (step.headers && Object.keys(step.headers).length > 0) {
-      yaml += `${indent}  headers:\n`;
-      for (const [key, value] of Object.entries(step.headers)) {
-        yaml += `${indent}    ${key}: "${value}"\n`;
+      if (step.method) {
+        yaml += `${indent}  method: ${step.method}\n`;
+      }
+
+      if (step.headers && Object.keys(step.headers).length > 0) {
+        yaml += `${indent}  headers:\n`;
+        for (const [key, value] of Object.entries(step.headers)) {
+          yaml += `${indent}    ${key}: "${value}"\n`;
+        }
+      }
+
+      if (step.queryParams && Object.keys(step.queryParams).length > 0) {
+        yaml += `${indent}  queryParams:\n`;
+        for (const [key, value] of Object.entries(step.queryParams)) {
+          yaml += `${indent}    ${key}: "${value}"\n`;
+        }
+      }
+
+      if (step.body) {
+        yaml += `${indent}  body: ${this._formatYamlValue(
+          step.body,
+          `${indent}    `
+        )}\n`;
+      }
+
+      // Asserts
+      if (step.asserts && step.asserts.length > 0) {
+        yaml += `${indent}  asserts:\n`;
+        for (const assert of step.asserts) {
+          yaml += this._buildYamlAssert(assert, `${indent}    `);
+        }
+      }
+
+      // Captures
+      if (step.captures && step.captures.length > 0) {
+        yaml += `${indent}  captures:\n`;
+        for (const capture of step.captures) {
+          yaml += this._buildYamlCapture(capture, `${indent}    `);
+        }
+      }
+
+    } else if (stepType === 'input') {
+      // Input configuration
+      if (step.input && Object.keys(step.input).length > 0) {
+        yaml += `${indent}  input:\n`;
+        for (const [key, value] of Object.entries(step.input)) {
+          yaml += `${indent}    ${key}: ${this._formatYamlValue(value)}\n`;
+        }
+      }
+
+    } else if (stepType === 'call') {
+      // Call configuration
+      if (step.call) {
+        yaml += `${indent}  call:\n`;
+        yaml += `${indent}    type: ${step.call.type || 'function'}\n`;
+        if (step.call.target) {
+          yaml += `${indent}    target: "${step.call.target}"\n`;
+        }
+      }
+
+    } else if (stepType === 'scenario') {
+      // Scenario reference
+      if (step.scenario) {
+        yaml += `${indent}  scenario: "${step.scenario}"\n`;
       }
     }
 
-    if (step.queryParams && Object.keys(step.queryParams).length > 0) {
-      yaml += `${indent}  queryParams:\n`;
-      for (const [key, value] of Object.entries(step.queryParams)) {
-        yaml += `${indent}    ${key}: "${value}"\n`;
-      }
-    }
-
-    if (step.body) {
-      yaml += `${indent}  body: ${this._formatYamlValue(step.body, `${indent}    `)}\n`;
-    }
-
-    // Asserts
-    if (step.asserts && step.asserts.length > 0) {
-      yaml += `${indent}  asserts:\n`;
-      for (const assert of step.asserts) {
-        yaml += this._buildYamlAssert(assert, `${indent}    `);
-      }
-    }
-
-    // Captures
-    if (step.captures && step.captures.length > 0) {
-      yaml += `${indent}  captures:\n`;
-      for (const capture of step.captures) {
-        yaml += this._buildYamlCapture(capture, `${indent}    `);
-      }
-    }
-
-    // Dependencies
+    // Dependencies (applies to all step types)
     if (step.depends && step.depends.length > 0) {
       yaml += `${indent}  depends:\n`;
       for (const dep of step.depends) {
@@ -179,7 +236,7 @@ export class CodeGeneratorService {
       }
     }
 
-    // Loop configuration
+    // Loop configuration (applies to all step types)
     if (step.loop?.enabled) {
       yaml += `${indent}  loop:\n`;
       if (step.loop.iterations) {
@@ -198,7 +255,10 @@ export class CodeGeneratorService {
       yaml += `${indent}  call:\n`;
       yaml += `${indent}    type: ${step.call.type}\n`;
       yaml += `${indent}    target: "${step.call.target}"\n`;
-      if (step.call.parameters && Object.keys(step.call.parameters).length > 0) {
+      if (
+        step.call.parameters &&
+        Object.keys(step.call.parameters).length > 0
+      ) {
         yaml += `${indent}    parameters:\n`;
         for (const [key, value] of Object.entries(step.call.parameters)) {
           yaml += `${indent}      ${key}: ${this._formatYamlValue(value)}\n`;
@@ -224,7 +284,9 @@ export class CodeGeneratorService {
     let yaml = `${indent}- type: ${assert.type}\n`;
     yaml += `${indent}  path: "${assert.path}"\n`;
     if (assert.expected !== undefined) {
-      yaml += `${indent}  expected: ${this._formatYamlValue(assert.expected)}\n`;
+      yaml += `${indent}  expected: ${this._formatYamlValue(
+        assert.expected
+      )}\n`;
     }
     if (assert.operator) {
       yaml += `${indent}  operator: "${assert.operator}"\n`;
@@ -246,7 +308,9 @@ export class CodeGeneratorService {
       yaml += `${indent}  pattern: "${capture.pattern}"\n`;
     }
     if (capture.defaultValue !== undefined) {
-      yaml += `${indent}  defaultValue: ${this._formatYamlValue(capture.defaultValue)}\n`;
+      yaml += `${indent}  defaultValue: ${this._formatYamlValue(
+        capture.defaultValue
+      )}\n`;
     }
     return yaml;
   }
@@ -254,23 +318,28 @@ export class CodeGeneratorService {
   /**
    * Formats a value for YAML output
    */
-  private _formatYamlValue(value: any, indent: string = ''): string {
+  private _formatYamlValue(value: any, indent: string = ""): string {
     if (value === null) {
-      return 'null';
+      return "null";
     }
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       return `"${value}"`;
     }
-    if (typeof value === 'number' || typeof value === 'boolean') {
+    if (typeof value === "number" || typeof value === "boolean") {
       return String(value);
     }
     if (Array.isArray(value)) {
-      return `\n${indent}  - ${value.map(v => this._formatYamlValue(v)).join(`\n${indent}  - `)}`;
+      return `\n${indent}  - ${value
+        .map((v) => this._formatYamlValue(v))
+        .join(`\n${indent}  - `)}`;
     }
-    if (typeof value === 'object') {
-      let result = '\n';
+    if (typeof value === "object") {
+      let result = "\n";
       for (const [key, val] of Object.entries(value)) {
-        result += `${indent}  ${key}: ${this._formatYamlValue(val, indent + '  ')}\n`;
+        result += `${indent}  ${key}: ${this._formatYamlValue(
+          val,
+          indent + "  "
+        )}\n`;
       }
       return result;
     }
@@ -283,7 +352,7 @@ export class CodeGeneratorService {
   private _buildJsonTest(config: TestConfiguration): any {
     const test: any = {
       name: config.name,
-      version: config.version || '1.0',
+      version: config.version || "1.0",
     };
 
     if (config.description) {
@@ -306,13 +375,13 @@ export class CodeGeneratorService {
       test.timeout = config.timeout;
     }
 
-    test.steps = config.steps.map(step => this._buildJsonStep(step));
+    test.steps = config.steps.map((step) => this._buildJsonStep(step));
 
     if (config.scenarios && config.scenarios.length > 0) {
-      test.scenarios = config.scenarios.map(scenario => ({
+      test.scenarios = config.scenarios.map((scenario) => ({
         name: scenario.name,
         condition: scenario.condition,
-        steps: scenario.steps.map(step => this._buildJsonStep(step))
+        steps: scenario.steps.map((step) => this._buildJsonStep(step)),
       }));
     }
 
@@ -328,7 +397,7 @@ export class CodeGeneratorService {
    */
   private _buildJsonStep(step: TestStep): any {
     const jsonStep: any = {
-      name: step.name
+      name: step.name,
     };
 
     if (step.description) {
@@ -356,22 +425,24 @@ export class CodeGeneratorService {
     }
 
     if (step.asserts && step.asserts.length > 0) {
-      jsonStep.asserts = step.asserts.map(assert => ({
+      jsonStep.asserts = step.asserts.map((assert) => ({
         type: assert.type,
         path: assert.path,
         ...(assert.expected !== undefined && { expected: assert.expected }),
         ...(assert.operator && { operator: assert.operator }),
-        ...(assert.message && { message: assert.message })
+        ...(assert.message && { message: assert.message }),
       }));
     }
 
     if (step.captures && step.captures.length > 0) {
-      jsonStep.captures = step.captures.map(capture => ({
+      jsonStep.captures = step.captures.map((capture) => ({
         name: capture.name,
         path: capture.path,
         type: capture.type,
         ...(capture.pattern && { pattern: capture.pattern }),
-        ...(capture.defaultValue !== undefined && { defaultValue: capture.defaultValue })
+        ...(capture.defaultValue !== undefined && {
+          defaultValue: capture.defaultValue,
+        }),
       }));
     }
 
@@ -383,7 +454,7 @@ export class CodeGeneratorService {
       jsonStep.loop = {
         ...(step.loop.iterations && { iterations: step.loop.iterations }),
         ...(step.loop.while && { while: step.loop.while }),
-        ...(step.loop.forEach && { forEach: step.loop.forEach })
+        ...(step.loop.forEach && { forEach: step.loop.forEach }),
       };
     }
 
@@ -405,44 +476,47 @@ export class CodeGeneratorService {
   /**
    * Validates test configuration
    */
-  public validate(config: TestConfiguration): { valid: boolean; errors: any[] } {
+  public validate(config: TestConfiguration): {
+    valid: boolean;
+    errors: any[];
+  } {
     const errors: any[] = [];
 
-    if (!config.name || config.name.trim() === '') {
+    if (!config.name || config.name.trim() === "") {
       errors.push({
-        field: 'name',
-        message: 'Test name is required',
-        severity: 'error'
+        field: "name",
+        message: "Test name is required",
+        severity: "error",
       });
     }
 
     if (!config.steps || config.steps.length === 0) {
       errors.push({
-        field: 'steps',
-        message: 'At least one step is required',
-        severity: 'error'
+        field: "steps",
+        message: "At least one step is required",
+        severity: "error",
       });
     }
 
     // Validate each step
     config.steps.forEach((step, index) => {
-      if (!step.name || step.name.trim() === '') {
+      if (!step.name || step.name.trim() === "") {
         errors.push({
           field: `steps[${index}].name`,
           message: `Step ${index + 1} must have a name`,
-          severity: 'error'
+          severity: "error",
         });
       }
 
       // Validate dependencies
       if (step.depends) {
-        step.depends.forEach(dep => {
-          const dependentStep = config.steps.find(s => s.id === dep.stepId);
+        step.depends.forEach((dep) => {
+          const dependentStep = config.steps.find((s) => s.id === dep.stepId);
           if (!dependentStep) {
             errors.push({
               field: `steps[${index}].depends`,
               message: `Step "${step.name}" depends on non-existent step "${dep.stepId}"`,
-              severity: 'error'
+              severity: "error",
             });
           }
         });
@@ -450,8 +524,8 @@ export class CodeGeneratorService {
     });
 
     return {
-      valid: errors.filter(e => e.severity === 'error').length === 0,
-      errors
+      valid: errors.filter((e) => e.severity === "error").length === 0,
+      errors,
     };
   }
 }

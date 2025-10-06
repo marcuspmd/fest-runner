@@ -149,8 +149,8 @@ webview.postMessage({
 
 ### Fluxo de Geração
 ```
-User Input → Form Data Collection → Validation → 
-CodeGenerator.generateYaml() → Display Result → 
+User Input → Form Data Collection → Validation →
+CodeGenerator.generateYaml() → Display Result →
 User Action (Copy/Save)
 ```
 
@@ -222,17 +222,17 @@ TestStep {
 
 A implementação do Test Maker foi concluída com sucesso, atingindo todos os objetivos principais:
 
-✅ Interface visual intuitiva  
-✅ Criação de testes complexos sem código manual  
-✅ Geração automática de YAML/JSON  
-✅ Integração perfeita com VS Code  
-✅ Documentação completa  
-✅ Código limpo e bem estruturado  
+✅ Interface visual intuitiva
+✅ Criação de testes complexos sem código manual
+✅ Geração automática de YAML/JSON
+✅ Integração perfeita com VS Code
+✅ Documentação completa
+✅ Código limpo e bem estruturado
 
 O sistema está pronto para uso em produção e pode ser estendido facilmente com as melhorias sugeridas no backlog.
 
 ---
 
-**Desenvolvido em**: 06 de Outubro de 2025  
-**Branch**: `feat/generator`  
-**Commit**: Pending...  
+**Desenvolvido em**: 06 de Outubro de 2025
+**Branch**: `feat/generator`
+**Commit**: Pending...

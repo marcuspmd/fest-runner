@@ -193,19 +193,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
     ),
 
-    vscode.commands.registerCommand(
-      "flow-test-runner.rerunLast",
-      async () => {
-        await testRunner.retestLast();
-      }
-    ),
+    vscode.commands.registerCommand("flow-test-runner.rerunLast", async () => {
+      await testRunner.retestLast();
+    }),
 
-    vscode.commands.registerCommand(
-      "flow-test-runner.rerunCache",
-      async () => {
-        await testRunner.retestLast();
-      }
-    ),
+    vscode.commands.registerCommand("flow-test-runner.rerunCache", async () => {
+      await testRunner.retestLast();
+    }),
 
     vscode.commands.registerCommand("flow-test-runner.report", async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -980,9 +974,7 @@ async function handleExportPostman(
     const resultsPath = path.join(workspacePath, "results", "latest.json");
 
     if (!(await fileExists(resultsPath))) {
-      vscode.window.showErrorMessage(
-        "No test results found. Run tests first."
-      );
+      vscode.window.showErrorMessage("No test results found. Run tests first.");
       return;
     }
 

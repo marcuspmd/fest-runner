@@ -1,8 +1,8 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
-import { CodeGeneratorService } from './utils/codeGenerator';
-import { HtmlTemplate } from './utils/htmlTemplate';
-import { TestConfiguration } from './types';
+import * as vscode from "vscode";
+import * as path from "path";
+import { CodeGeneratorService } from "./utils/codeGenerator";
+import { HtmlTemplate } from "./utils/htmlTemplate";
+import { TestConfiguration } from "./types";
 
 /**
  * Manages the WebView panel for the Test Maker UI
@@ -51,19 +51,19 @@ export class TestMakerPanel {
 
     // Otherwise, create a new panel
     const panel = vscode.window.createWebviewPanel(
-      'flowTestMaker',
-      'Flow Test Maker',
+      "flowTestMaker",
+      "Flow Test Maker",
       column || vscode.ViewColumn.One,
       {
         // Enable javascript in the webview
         enableScripts: true,
         // Restrict the webview to only loading content from our extension's directory
         localResourceRoots: [
-          vscode.Uri.joinPath(extensionUri, 'dist'),
-          vscode.Uri.joinPath(extensionUri, 'media')
+          vscode.Uri.joinPath(extensionUri, "dist"),
+          vscode.Uri.joinPath(extensionUri, "media"),
         ],
         // Keep the webview alive even when hidden
-        retainContextWhenHidden: true
+        retainContextWhenHidden: true,
       }
     );
 
@@ -98,25 +98,25 @@ export class TestMakerPanel {
    */
   private _handleMessage(message: any) {
     switch (message.type) {
-      case 'generate-test':
+      case "generate-test":
         this._handleGenerateTest(message.payload);
         break;
-      case 'validate-url':
+      case "validate-url":
         this._handleValidateUrl(message.payload);
         break;
-      case 'save-draft':
+      case "save-draft":
         this._handleSaveDraft(message.payload);
         break;
-      case 'load-draft':
+      case "load-draft":
         this._handleLoadDraft();
         break;
-      case 'copy-to-clipboard':
+      case "copy-to-clipboard":
         this._handleCopyToClipboard(message.payload);
         break;
-      case 'save-to-file':
+      case "save-to-file":
         this._handleSaveToFile(message.payload);
         break;
-      case 'error':
+      case "error":
         vscode.window.showErrorMessage(message.payload);
         break;
       default:
@@ -131,50 +131,50 @@ export class TestMakerPanel {
     try {
       // Validate configuration
       const validation = this._codeGenerator.validate(config);
-      
+
       if (!validation.valid) {
         this.sendMessage({
-          type: 'test-generated',
+          type: "test-generated",
           payload: {
             success: false,
             errors: validation.errors,
-            error: 'Validation failed. Please check the errors.'
-          }
+            error: "Validation failed. Please check the errors.",
+          },
         });
         return;
       }
 
       // Generate YAML test
       const result = this._codeGenerator.generateYaml(config);
-      
+
       if (result.valid) {
         this.sendMessage({
-          type: 'test-generated',
+          type: "test-generated",
           payload: {
             code: result.code,
             language: result.language,
-            success: true
-          }
+            success: true,
+          },
         });
 
-        vscode.window.showInformationMessage('Test generated successfully!');
+        vscode.window.showInformationMessage("Test generated successfully!");
       } else {
         this.sendMessage({
-          type: 'test-generated',
+          type: "test-generated",
           payload: {
             success: false,
             errors: result.errors,
-            error: 'Failed to generate test code'
-          }
+            error: "Failed to generate test code",
+          },
         });
       }
     } catch (error: any) {
       this.sendMessage({
-        type: 'test-generated',
+        type: "test-generated",
         payload: {
           success: false,
-          error: error.message
-        }
+          error: error.message,
+        },
       });
       vscode.window.showErrorMessage(`Error generating test: ${error.message}`);
     }
@@ -187,13 +187,13 @@ export class TestMakerPanel {
     try {
       new URL(url);
       this.sendMessage({
-        type: 'url-validated',
-        payload: { valid: true }
+        type: "url-validated",
+        payload: { valid: true },
       });
     } catch {
       this.sendMessage({
-        type: 'url-validated',
-        payload: { valid: false, error: 'Invalid URL format' }
+        type: "url-validated",
+        payload: { valid: false, error: "Invalid URL format" },
       });
     }
   }
@@ -203,7 +203,7 @@ export class TestMakerPanel {
    */
   private _handleSaveDraft(draft: any) {
     // TODO: Implement draft saving logic
-    vscode.window.showInformationMessage('Draft saved successfully!');
+    vscode.window.showInformationMessage("Draft saved successfully!");
   }
 
   /**
@@ -212,8 +212,8 @@ export class TestMakerPanel {
   private _handleLoadDraft() {
     // TODO: Implement draft loading logic
     this.sendMessage({
-      type: 'draft-loaded',
-      payload: null
+      type: "draft-loaded",
+      payload: null,
     });
   }
 
@@ -223,7 +223,7 @@ export class TestMakerPanel {
   private async _handleCopyToClipboard(text: string) {
     try {
       await vscode.env.clipboard.writeText(text);
-      vscode.window.showInformationMessage('Copied to clipboard!');
+      vscode.window.showInformationMessage("Copied to clipboard!");
     } catch (error: any) {
       vscode.window.showErrorMessage(`Failed to copy: ${error.message}`);
     }
@@ -235,35 +235,41 @@ export class TestMakerPanel {
   private async _handleSaveToFile(config: TestConfiguration) {
     try {
       const result = this._codeGenerator.generateYaml(config);
-      
+
       if (!result.valid) {
-        vscode.window.showErrorMessage('Cannot save invalid test configuration');
+        vscode.window.showErrorMessage(
+          "Cannot save invalid test configuration"
+        );
         return;
       }
 
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       if (!workspaceFolder) {
-        vscode.window.showErrorMessage('No workspace folder found');
+        vscode.window.showErrorMessage("No workspace folder found");
         return;
       }
 
-      const defaultFileName = config.name.toLowerCase().replace(/\s+/g, '-') + '.yml';
-      const defaultUri = vscode.Uri.joinPath(workspaceFolder.uri, defaultFileName);
+      const defaultFileName =
+        config.name.toLowerCase().replace(/\s+/g, "-") + ".yml";
+      const defaultUri = vscode.Uri.joinPath(
+        workspaceFolder.uri,
+        defaultFileName
+      );
 
       const uri = await vscode.window.showSaveDialog({
         defaultUri: defaultUri,
         filters: {
-          'YAML': ['yml', 'yaml'],
-          'JSON': ['json']
+          YAML: ["yml", "yaml"],
+          JSON: ["json"],
         },
-        saveLabel: 'Save Test'
+        saveLabel: "Save Test",
       });
 
       if (uri) {
-        const fs = require('fs').promises;
-        await fs.writeFile(uri.fsPath, result.code, 'utf8');
+        const fs = require("fs").promises;
+        await fs.writeFile(uri.fsPath, result.code, "utf8");
         vscode.window.showInformationMessage(`Test saved to ${uri.fsPath}`);
-        
+
         // Open the saved file
         const doc = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(doc);
@@ -282,8 +288,9 @@ export class TestMakerPanel {
   }
 
   private _getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let text = "";
+    const possible =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     for (let i = 0; i < 32; i++) {
       text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
