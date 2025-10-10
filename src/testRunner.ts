@@ -595,8 +595,7 @@ export class TestRunner {
 
   private toSubmissionValue(
     config: NormalizedInputConfig,
-    rawValue: string,
-    isDefault: boolean = false
+    rawValue: string
   ): string {
     switch (config.type) {
       case "select":
@@ -940,7 +939,7 @@ export class TestRunner {
           config.defaultValue
         );
         context.process.stdin?.write(
-          `${this.toSubmissionValue(config, config.defaultValue, true)}\n`
+          `${this.toSubmissionValue(config, config.defaultValue)}\n`
         );
         return;
       }
@@ -1055,7 +1054,7 @@ export class TestRunner {
               input.defaultValue
             );
             submissions.push(
-              this.toSubmissionValue(input, input.defaultValue, true)
+              this.toSubmissionValue(input, input.defaultValue)
             );
             continue;
           }
@@ -1477,6 +1476,277 @@ export class TestRunner {
 
   async editCachedInput(): Promise<void> {
     await this.inputService.editCachedInput();
+  }
+
+  /**
+   * Runs suite and shows JSON output in a formatted document
+   */
+  async runSuiteWithJsonOutput(suitePath: string): Promise<void> {
+    this.outputChannel.show();
+    this.outputChannel.appendLine("=".repeat(50));
+    this.outputChannel.appendLine("🚀 Executando teste com saída JSON");
+    this.outputChannel.appendLine(`📁 Suite path: ${suitePath}`);
+
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(suitePath)
+    );
+    if (!workspaceFolder) {
+      const errorMsg = "No workspace folder found";
+      this.outputChannel.appendLine(`❌ ${errorMsg}`);
+      vscode.window.showErrorMessage(errorMsg);
+      return;
+    }
+
+    this.outputChannel.appendLine(`📁 Workspace folder: ${workspaceFolder.uri.fsPath}`);
+
+    const config = await this.configService.getConfig(
+      workspaceFolder.uri.fsPath
+    );
+    const cwd = config.workingDirectory || workspaceFolder.uri.fsPath;
+    const relativePath = path.relative(cwd, suitePath);
+
+    this.outputChannel.appendLine(`📁 Working directory: ${cwd}`);
+    this.outputChannel.appendLine(`📄 Relative path: ${relativePath}`);
+    this.outputChannel.appendLine(`🔧 Command: ${config.command}`);
+
+    const useInteractiveInputs = this.shouldUseInteractiveInputs(config);
+    this.outputChannel.appendLine(`⚙️  Interactive inputs: ${useInteractiveInputs}`);
+
+    vscode.window.showInformationMessage(`🚀 Executando teste: ${relativePath}`);
+
+    try {
+      // Prepare inputs if not using interactive mode
+      const collectedInputs: Record<string, string> = {};
+      let preparedInputs: {
+        submissions: string[];
+        userInputs: Record<string, string>;
+      } = {
+        submissions: [],
+        userInputs: collectedInputs,
+      };
+
+      if (!useInteractiveInputs) {
+        this.outputChannel.appendLine("🔄 Coletando inputs necessários...");
+        try {
+          preparedInputs = await this.prepareInteractiveInputs(
+            suitePath,
+            undefined,
+            {
+              useCache: true,
+              suppressNotifications: false,
+            }
+          );
+          Object.assign(collectedInputs, preparedInputs.userInputs);
+          this.outputChannel.appendLine(
+            `✅ Inputs coletados: ${Object.keys(collectedInputs).length} valores`
+          );
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.outputChannel.appendLine(
+            `❌ Failed to prepare test inputs: ${errorMessage}`
+          );
+          vscode.window.showErrorMessage(
+            `Falha ao coletar inputs necessários: ${errorMessage}`
+          );
+          throw error;
+        }
+      }
+
+      this.outputChannel.appendLine("🔄 Iniciando execução...");
+      const result = await this.executeTestWithJsonOutput(
+        suitePath,
+        cwd,
+        relativePath,
+        config,
+        preparedInputs,
+        useInteractiveInputs,
+        collectedInputs
+      );
+
+      this.outputChannel.appendLine(`✅ Execução concluída. Exit code: ${result.exitCode}`);
+      this.outputChannel.appendLine(`📊 Output length: ${JSON.stringify(result.output).length} characters`);
+
+      // Show JSON output in a new document
+      const doc = await vscode.workspace.openTextDocument({
+        content: JSON.stringify(result.output, null, 2),
+        language: 'json'
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Beside
+      });
+
+      if (result.success) {
+        this.outputChannel.appendLine('✅ Teste executado com sucesso!');
+        vscode.window.showInformationMessage('✅ Teste executado com sucesso!');
+      } else {
+        this.outputChannel.appendLine(`❌ Teste falhou com código ${result.exitCode}`);
+        if (result.error) {
+          this.outputChannel.appendLine(`🔴 Error output:\n${result.error}`);
+        }
+        vscode.window.showErrorMessage(`❌ Teste falhou com código ${result.exitCode}`);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`❌ Erro ao executar teste: ${errorMessage}`);
+      if (error instanceof Error && error.stack) {
+        this.outputChannel.appendLine(`Stack trace:\n${error.stack}`);
+      }
+      vscode.window.showErrorMessage(`Erro ao executar teste: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async executeTestWithJsonOutput(
+    suitePath: string,
+    cwd: string,
+    relativePath: string,
+    config: FlowTestConfig,
+    preparedInputs?: {
+      submissions: string[];
+      userInputs: Record<string, string>;
+    },
+    useInteractiveInputs: boolean = false,
+    collectedInputs: Record<string, string> = {}
+  ): Promise<{ success: boolean; exitCode: number; output: any; error?: string }> {
+    return new Promise((resolve, reject) => {
+      const args = [relativePath, '--verbose'];
+
+      // Add interactive flag if using interactive mode
+      if (useInteractiveInputs) {
+        args.push(FLOW_INPUT_FLAG);
+      }
+
+      this.outputChannel.appendLine(`📋 Comando completo: ${config.command} ${args.join(' ')}`);
+      this.outputChannel.appendLine(`📁 CWD: ${cwd}`);
+      this.outputChannel.appendLine(`🔧 Interactive mode: ${useInteractiveInputs}`);
+      if (preparedInputs && preparedInputs.submissions.length > 0) {
+        this.outputChannel.appendLine(`🧩 Pre-collected inputs: ${preparedInputs.submissions.length}`);
+      }
+      this.outputChannel.appendLine("🔄 Spawning process...");
+
+      const testProcess = spawn(config.command, args, {
+        cwd,
+        shell: true,
+        timeout: config.timeout
+      });
+
+      this.outputChannel.appendLine(`✅ Process spawned. PID: ${testProcess.pid}`);
+
+      // If not using interactive mode and we have prepared inputs, send them
+      if (!useInteractiveInputs && preparedInputs && preparedInputs.submissions.length > 0) {
+        this.outputChannel.appendLine(`📤 Sending ${preparedInputs.submissions.length} prepared inputs...`);
+        preparedInputs.submissions.forEach((submission, index) => {
+          testProcess.stdin?.write(`${submission}\n`);
+          this.outputChannel.appendLine(`  ✅ Input ${index + 1}: ${submission.substring(0, 50)}${submission.length > 50 ? '...' : ''}`);
+        });
+      }
+
+      let output = '';
+      let errorOutput = '';
+
+      // Setup interactive input controller if needed
+      const interactiveContext: InteractiveInputContext | undefined =
+        useInteractiveInputs
+          ? {
+              process: testProcess,
+              config,
+              suitePath,
+              stepName: undefined,
+              stepId: undefined,
+              collectedInputs,
+              useCache: true,
+              suppressNotifications: false,
+            }
+          : undefined;
+
+      const interactiveController = interactiveContext
+        ? this.createInteractiveInputController(interactiveContext)
+        : undefined;
+
+      testProcess.stdout?.on('data', (data) => {
+        const text = data.toString();
+
+        if (interactiveController) {
+          const forwarded = interactiveController.handleData(text);
+          if (forwarded) {
+            output += forwarded;
+            this.outputChannel.append(forwarded);
+          }
+        } else {
+          output += text;
+          this.outputChannel.append(text);
+        }
+      });
+
+      testProcess.stderr?.on('data', (data) => {
+        const text = data.toString();
+        errorOutput += text;
+        this.outputChannel.append(`[STDERR] ${text}`);
+      });
+
+      testProcess.on('close', async (code) => {
+        this.outputChannel.appendLine(`🏁 Process closed with code: ${code}`);
+
+        if (interactiveController) {
+          const remaining = interactiveController.flush();
+          if (remaining) {
+            output += remaining;
+            this.outputChannel.append(remaining);
+          }
+
+          try {
+            await interactiveController.waitForCompletion();
+          } catch (interactiveError) {
+            const message =
+              interactiveError instanceof Error
+                ? interactiveError.message
+                : String(interactiveError);
+            this.outputChannel.appendLine(
+              `❌ Erro ao processar inputs interativos: ${message}`
+            );
+          }
+        }
+
+        const exitCode = code ?? 0;
+        const success = exitCode === 0;
+
+        this.outputChannel.appendLine(`📊 Total output length: ${output.length} bytes`);
+        this.outputChannel.appendLine(`📊 Total error length: ${errorOutput.length} bytes`);
+
+        // Try to parse JSON output
+        let parsedOutput: any;
+        try {
+          parsedOutput = JSON.parse(output);
+          this.outputChannel.appendLine('✅ Successfully parsed JSON output');
+        } catch (parseError) {
+          this.outputChannel.appendLine(`⚠️ Failed to parse JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+          // If not JSON, return as plain text wrapped in object
+          parsedOutput = {
+            raw_output: output,
+            error_output: errorOutput,
+            exit_code: exitCode
+          };
+        }
+
+        resolve({
+          success,
+          exitCode,
+          output: parsedOutput,
+          error: errorOutput || undefined
+        });
+      });
+
+      testProcess.on('error', (error) => {
+        this.outputChannel.appendLine(`❌ Process error: ${error.message}`);
+        if (error.stack) {
+          this.outputChannel.appendLine(`Stack: ${error.stack}`);
+        }
+        reject(error);
+      });
+    });
   }
 
   stopTest(suitePath: string, stepName?: string): void {

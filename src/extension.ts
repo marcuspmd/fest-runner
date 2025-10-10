@@ -210,6 +210,15 @@ export function activate(context: vscode.ExtensionContext) {
 
       await htmlResultsService.showResults(workspaceFolder.uri.fsPath);
     }),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.runSuiteWithJsonOutput",
+      async (item) => {
+        if (item && item.filePath && item.type === "suite") {
+          await testRunner.runSuiteWithJsonOutput(item.filePath);
+        }
+      }
+    ),
   ];
 
   context.subscriptions.push(
