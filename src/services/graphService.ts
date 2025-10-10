@@ -8,6 +8,7 @@ import {
   FlowTestGraphConfig,
   FlowTestGraphDirection,
 } from "../models/types";
+import { quoteArgsForShell } from "../utils/commandLine";
 
 export interface GraphGenerationOptions {
   workspacePath: string;
@@ -58,15 +59,14 @@ export class GraphService implements vscode.Disposable {
     await this.ensureOutputDirectory(options.outputPath);
 
     const args = this.buildArguments(options, graphConfig, config);
+    const displayArgs = quoteArgsForShell(args);
 
     this.outputChannel.show(true);
     this.outputChannel.appendLine(
       "================ Flow Test Graph ================"
     );
     this.outputChannel.appendLine(
-      `Command: ${command} ${args
-        .map((value) => this.quoteIfNeeded(value))
-        .join(" ")}`
+      `Command: ${command} ${displayArgs.join(" ")}`
     );
     this.outputChannel.appendLine(`Working directory: ${cwd}`);
     this.outputChannel.appendLine(`Output file: ${options.outputPath}`);
@@ -168,9 +168,10 @@ export class GraphService implements vscode.Disposable {
     timeout: number
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      const preparedArgs = quoteArgsForShell(args);
       let graphProcess: ChildProcess;
       try {
-        graphProcess = spawn(command, args, {
+        graphProcess = spawn(command, preparedArgs, {
           cwd,
           shell: true,
           timeout,
@@ -208,7 +209,4 @@ export class GraphService implements vscode.Disposable {
     });
   }
 
-  private quoteIfNeeded(value: string): string {
-    return /\s/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
-  }
 }

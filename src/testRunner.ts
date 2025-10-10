@@ -13,6 +13,7 @@ import {
 import * as yaml from "yaml";
 import { ConfigService } from "./services/configService";
 import { InputService } from "./services/inputService";
+import { quoteArgsForShell } from "./utils/commandLine";
 
 interface NormalizedInputOption {
   label: string;
@@ -392,7 +393,8 @@ export class TestRunner {
         finalArgs.push("--html-output");
       }
 
-      const commandLine = [config.command, ...finalArgs].join(" ").trim();
+      const preparedArgs = quoteArgsForShell(finalArgs);
+      const commandLine = [config.command, ...preparedArgs].join(" ").trim();
       this.outputChannel.appendLine(`📋 Executing command: ${commandLine}`);
       this.outputChannel.appendLine(`📁 Working directory: ${cwd}`);
       this.outputChannel.appendLine(
@@ -400,7 +402,7 @@ export class TestRunner {
       );
       this.outputChannel.appendLine("");
 
-      const testProcess = spawn(config.command, finalArgs, {
+      const testProcess = spawn(config.command, preparedArgs, {
         cwd,
         shell: true,
         timeout: config.timeout,
@@ -1623,7 +1625,8 @@ export class TestRunner {
         args.push(FLOW_INPUT_FLAG);
       }
 
-      this.outputChannel.appendLine(`📋 Comando completo: ${config.command} ${args.join(' ')}`);
+      const preparedArgs = quoteArgsForShell(args);
+      this.outputChannel.appendLine(`📋 Comando completo: ${config.command} ${preparedArgs.join(' ')}`);
       this.outputChannel.appendLine(`📁 CWD: ${cwd}`);
       this.outputChannel.appendLine(`🔧 Interactive mode: ${useInteractiveInputs}`);
       if (preparedInputs && preparedInputs.submissions.length > 0) {
@@ -1631,7 +1634,7 @@ export class TestRunner {
       }
       this.outputChannel.appendLine("🔄 Spawning process...");
 
-      const testProcess = spawn(config.command, args, {
+      const testProcess = spawn(config.command, preparedArgs, {
         cwd,
         shell: true,
         timeout: config.timeout
