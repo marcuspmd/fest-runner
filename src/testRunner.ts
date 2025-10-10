@@ -1614,6 +1614,10 @@ export class TestRunner {
     return new Promise((resolve, reject) => {
       const args = [relativePath, '--verbose', '--no-report'];
 
+      // Add live events for tree view updates
+      const liveEventsPath = this.prepareLiveEventsFile(cwd);
+      args.push('--live-events', liveEventsPath);
+
       // Add interactive flag if using interactive mode
       if (useInteractiveInputs) {
         args.push(FLOW_INPUT_FLAG);
@@ -1715,6 +1719,29 @@ export class TestRunner {
 
         this.outputChannel.appendLine(`📊 Total output length: ${output.length} bytes`);
         this.outputChannel.appendLine(`📊 Total error length: ${errorOutput.length} bytes`);
+
+        // Process live events to update tree view
+        const suiteLabel = path.basename(suitePath);
+        let dispatched = false;
+        let hadFailures = false;
+
+        try {
+          this.outputChannel.appendLine('🔍 Processing live events for tree view updates...');
+          const liveResult = await this.processLiveEvents(
+            liveEventsPath,
+            suiteLabel,
+            undefined
+          );
+          dispatched = liveResult.dispatched;
+          hadFailures = liveResult.hadFailures;
+          this.outputChannel.appendLine(`📊 Events processed: ${dispatched ? 'Yes' : 'No'}, Failures: ${hadFailures ? 'Yes' : 'No'}`);
+        } catch (error) {
+          this.outputChannel.appendLine(`⚠️ Failed to process live events: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        // Emit suite result
+        const aggregatedResult = await this.loadAggregatedResult(config, cwd);
+        this.emitSuiteResults(aggregatedResult, suiteLabel);
 
         // Return raw output for debugging
         this.outputChannel.appendLine('📋 Returning RAW output for debugging');
