@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
