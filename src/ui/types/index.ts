@@ -2,6 +2,12 @@
  * Type definitions for the Test Maker UI
  */
 
+// Re-export new types
+export * from './input';
+export * from './scenario';
+export * from './iteration';
+export * from './metadata';
+
 export type TestType = "api" | "unit" | "integration" | "e2e";
 
 export type StepType = "request" | "input" | "call" | "scenario";
@@ -92,8 +98,17 @@ export interface TestStep {
   body?: any;
   queryParams?: Record<string, string>;
 
-  // Input configuration (for type: "input")
-  input?: Record<string, any>; // Key-value pairs for input variables
+  // Input configuration - UPDATED to support advanced inputs
+  input?: import('./input').InputConfig[]; // Array of advanced input configs
+
+  // Iteration configuration - NEW
+  iterate?: import('./iteration').IterationConfig;
+
+  // Scenarios configuration - NEW
+  scenarios?: import('./scenario').ScenarioConfig[];
+
+  // Step metadata - NEW
+  metadata?: import('./metadata').StepMetadata;
 
   // Validation
   asserts: Assert[];
@@ -112,13 +127,25 @@ export interface TestStep {
 }
 
 export interface TestConfiguration {
-  node_id: string; // Obrigatório - ID único do nó no sistema
-  id: string;
-  name: string;
+  // UPDATED: Use suite_name and base_url (snake_case) for YAML compatibility
+  suite_name: string;        // Suite name (replaces 'name')
+  node_id: string;           // Required - unique node identifier
+  base_url?: string;         // Base URL (snake_case)
+
+  // Legacy support
+  id?: string;               // Auto-generated ID
+  name?: string;             // Deprecated, use suite_name
+  baseUrl?: string;          // Deprecated, use base_url
+
   description?: string;
   type: TestType;
-  baseUrl?: string;
   version: string;
+
+  // NEW: Dependencies
+  depends?: import('./metadata').DependsConfig[];
+
+  // NEW: Exports
+  exports?: string[];        // Variables to export
 
   // Global configuration
   headers?: Record<string, string>;
@@ -129,7 +156,10 @@ export interface TestConfiguration {
   steps: TestStep[];
   scenarios?: Scenario[];
 
-  // Metadata
+  // NEW: Test metadata
+  metadata?: import('./metadata').TestMetadata;
+
+  // Legacy metadata
   tags?: string[];
   author?: string;
   createdAt?: string;

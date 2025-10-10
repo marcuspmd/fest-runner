@@ -68,46 +68,70 @@ export class CodeGeneratorService {
    * Builds YAML test structure
    */
   private _buildYamlTest(config: TestConfiguration): string {
-    let yaml = `# ${config.name}\n`;
+    // UPDATED: Use suite_name and base_url (snake_case)
+    const suiteName = config.suite_name || config.name || 'Unnamed Test';
+    const baseUrl = config.base_url || config.baseUrl;
+
+    let yaml = `# ${suiteName}\n`;
     if (config.description) {
       yaml += `# ${config.description}\n`;
     }
-    yaml += `\nname: ${config.name}\n`;
-    yaml += `version: "${config.version || "1.0"}"\n`;
+    yaml += `\nsuite_name: "${suiteName}"\n`;
+    yaml += `node_id: "${config.node_id}"\n`;
 
-    // Node ID (required field)
-    if (config.node_id) {
-      yaml += `node_id: "${config.node_id}"\n`;
+    if (config.description) {
+      yaml += `description: "${config.description}"\n`;
     }
 
-    // Global headers
-    if (config.headers && Object.keys(config.headers).length > 0) {
-      yaml += `\nheaders:\n`;
-      for (const [key, value] of Object.entries(config.headers)) {
-        yaml += `  ${key}: "${value}"\n`;
+    // Base URL (snake_case)
+    if (baseUrl) {
+      yaml += `base_url: "${baseUrl}"\n\n`;
+    }
+
+    // NEW: Dependencies
+    if (config.depends && config.depends.length > 0) {
+      yaml += `depends:\n`;
+      for (const dep of config.depends) {
+        yaml += `  - path: "${dep.path}"\n`;
+        yaml += `    node_id: "${dep.node_id}"\n`;
       }
+      yaml += `\n`;
     }
 
     // Global variables
     if (config.variables && Object.keys(config.variables).length > 0) {
-      yaml += `\nvariables:\n`;
+      yaml += `variables:\n`;
       for (const [key, value] of Object.entries(config.variables)) {
         yaml += `  ${key}: ${this._formatYamlValue(value)}\n`;
       }
+      yaml += `\n`;
     }
 
-    // Base URL
-    if (config.baseUrl) {
-      yaml += `\nbaseUrl: "${config.baseUrl}"\n`;
+    // NEW: Exports
+    if (config.exports && config.exports.length > 0) {
+      yaml += `exports:\n`;
+      for (const exportVar of config.exports) {
+        yaml += `  - "${exportVar}"\n`;
+      }
+      yaml += `\n`;
+    }
+
+    // Global headers
+    if (config.headers && Object.keys(config.headers).length > 0) {
+      yaml += `headers:\n`;
+      for (const [key, value] of Object.entries(config.headers)) {
+        yaml += `  ${key}: "${value}"\n`;
+      }
+      yaml += `\n`;
     }
 
     // Timeout
     if (config.timeout) {
-      yaml += `timeout: ${config.timeout}\n`;
+      yaml += `timeout: ${config.timeout}\n\n`;
     }
 
     // Steps
-    yaml += `\nsteps:\n`;
+    yaml += `steps:\n`;
     for (const step of config.steps) {
       yaml += this._buildYamlStep(step);
     }
@@ -139,6 +163,13 @@ export class CodeGeneratorService {
     // Step ID (optional)
     if (step.step_id) {
       yaml += `${indent}  step_id: "${step.step_id}"\n`;
+    }
+
+    // NEW: Iteration configuration
+    if (step.iterate) {
+      yaml += `${indent}  iterate:\n`;
+      yaml += `${indent}    over: "${step.iterate.over}"\n`;
+      yaml += `${indent}    as: "${step.iterate.as}"\n`;
     }
 
     if (step.description) {
@@ -198,15 +229,25 @@ export class CodeGeneratorService {
           yaml += this._buildYamlCapture(capture, `${indent}    `);
         }
       }
-    } else if (stepType === "input") {
-      // Input configuration
-      if (step.input && Object.keys(step.input).length > 0) {
-        yaml += `${indent}  input:\n`;
-        for (const [key, value] of Object.entries(step.input)) {
-          yaml += `${indent}    ${key}: ${this._formatYamlValue(value)}\n`;
-        }
+    }
+
+    // NEW: Advanced Input Configuration (applies after request if present)
+    if (step.input && step.input.length > 0) {
+      yaml += `${indent}  input:\n`;
+      for (const input of step.input) {
+        yaml += this._buildYamlInput(input, `${indent}    `);
       }
-    } else if (stepType === "call") {
+    }
+
+    // NEW: Scenarios configuration
+    if (step.scenarios && step.scenarios.length > 0) {
+      yaml += `${indent}  scenarios:\n`;
+      for (const scenario of step.scenarios) {
+        yaml += this._buildYamlScenario(scenario, `${indent}    `);
+      }
+    }
+
+    if (stepType === "call") {
       // Call configuration
       if (step.call) {
         yaml += `${indent}  call:\n`;
@@ -309,6 +350,118 @@ export class CodeGeneratorService {
         capture.defaultValue
       )}\n`;
     }
+    return yaml;
+  }
+
+  /**
+   * Builds a YAML input (advanced input configuration)
+   */
+  private _buildYamlInput(input: any, indent: string): string {
+    let yaml = `${indent}- prompt: "${input.prompt}"\n`;
+    yaml += `${indent}  variable: "${input.variable}"\n`;
+    yaml += `${indent}  type: "${input.type}"\n`;
+
+    // Options (can be JMESPath string or array of objects)
+    if (input.options) {
+      if (typeof input.options === 'string') {
+        // JMESPath expression
+        yaml += `${indent}  options: "${input.options}"\n`;
+      } else if (Array.isArray(input.options)) {
+        // Static array of options
+        yaml += `${indent}  options:\n`;
+        for (const opt of input.options) {
+          yaml += `${indent}    - value: "${opt.value}"\n`;
+          yaml += `${indent}      label: "${opt.label}"\n`;
+        }
+      }
+    }
+
+    if (input.description) {
+      yaml += `${indent}  description: "${input.description}"\n`;
+    }
+
+    if (input.style) {
+      yaml += `${indent}  style: "${input.style}"\n`;
+    }
+
+    if (input.required !== undefined) {
+      yaml += `${indent}  required: ${input.required}\n`;
+    }
+
+    if (input.masked !== undefined) {
+      yaml += `${indent}  masked: ${input.masked}\n`;
+    }
+
+    // Dynamic computed variables
+    if (input.dynamic?.computed) {
+      yaml += `${indent}  dynamic:\n`;
+      yaml += `${indent}    computed:\n`;
+      for (const [key, expr] of Object.entries(input.dynamic.computed)) {
+        yaml += `${indent}      ${key}: "${expr}"\n`;
+      }
+    }
+
+    return yaml;
+  }
+
+  /**
+   * Builds a YAML scenario (conditional scenario)
+   */
+  private _buildYamlScenario(scenario: any, indent: string): string {
+    let yaml = `${indent}- condition: "${scenario.condition}"\n`;
+    yaml += `${indent}  then:\n`;
+
+    // Scenario assertions
+    if (scenario.then.assert) {
+      yaml += `${indent}    assert:\n`;
+      const assert = scenario.then.assert;
+
+      if (assert.status_code !== undefined) {
+        yaml += `${indent}      status_code: ${assert.status_code}\n`;
+      }
+
+      if (assert.body) {
+        yaml += `${indent}      body:\n`;
+        yaml += this._buildNestedObject(assert.body, `${indent}        `);
+      }
+
+      if (assert.response_time_ms) {
+        yaml += `${indent}      response_time_ms:\n`;
+        if (assert.response_time_ms.max !== undefined) {
+          yaml += `${indent}        max: ${assert.response_time_ms.max}\n`;
+        }
+        if (assert.response_time_ms.min !== undefined) {
+          yaml += `${indent}        min: ${assert.response_time_ms.min}\n`;
+        }
+      }
+    }
+
+    // Scenario captures
+    if (scenario.then.capture) {
+      yaml += `${indent}    capture:\n`;
+      for (const [key, value] of Object.entries(scenario.then.capture)) {
+        yaml += `${indent}      ${key}: "${value}"\n`;
+      }
+    }
+
+    return yaml;
+  }
+
+  /**
+   * Builds nested object for YAML (used in assertions)
+   */
+  private _buildNestedObject(obj: any, indent: string): string {
+    let yaml = '';
+
+    for (const [key, value] of Object.entries(obj)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        yaml += `${indent}${key}:\n`;
+        yaml += this._buildNestedObject(value, `${indent}  `);
+      } else {
+        yaml += `${indent}${key}: ${this._formatYamlValue(value)}\n`;
+      }
+    }
+
     return yaml;
   }
 

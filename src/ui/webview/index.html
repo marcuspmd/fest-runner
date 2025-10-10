@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}'; img-src {{cspSource}} data:; font-src {{cspSource}}; connect-src {{cspSource}} http: https:;">
+  <meta name="description" content="YAML Generator para Flow Test Engine - Crie e edite testes de API de forma visual">
+  <title>Flow Test Engine - YAML Generator</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="{{stylesMainUri}}">
+  <link rel="stylesheet" href="{{stylesComponentsUri}}">
+  <link rel="stylesheet" href="{{stylesResponsiveUri}}">
+</head>
+<body>
+  <!-- Header -->
+  <header id="app-header" role="banner">
+    <div class="header-content">
+      <h1 class="header-title">
+        <span class="header-icon">⚡</span>
+        Flow Test Engine - YAML Generator
+      </h1>
+
+      <div class="header-actions">
+        <button id="btn-new" class="btn btn-secondary" aria-label="Criar novo arquivo" title="Novo (Ctrl+N)">
+          <span class="btn-icon">📄</span>
+          <span class="btn-text">Novo</span>
+        </button>
+
+        <button id="btn-open" class="btn btn-secondary" aria-label="Abrir arquivo existente" title="Abrir (Ctrl+O)">
+          <span class="btn-icon">📂</span>
+          <span class="btn-text">Abrir</span>
+        </button>
+
+        <button id="btn-save" class="btn btn-primary" aria-label="Salvar arquivo" title="Salvar (Ctrl+S)">
+          <span class="btn-icon">💾</span>
+          <span class="btn-text">Salvar</span>
+        </button>
+
+        <button id="btn-run-test" class="btn btn-success" aria-label="Executar teste" title="Executar (Ctrl+Enter)">
+          <span class="btn-icon">▶️</span>
+          <span class="btn-text">Executar</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div id="app-layout" class="app-layout">
+    <!-- Sidebar Navigation -->
+    <nav id="sidebar" class="sidebar" role="navigation" aria-label="Menu principal">
+      <div class="sidebar-content">
+        <h2 class="sidebar-title">Menu</h2>
+
+        <ul class="nav-list" role="menu">
+          <li role="menuitem">
+            <button class="nav-item active" data-section="suite-config" aria-current="page">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-text">Configuração da Suite</span>
+            </button>
+          </li>
+
+          <li role="menuitem">
+            <details class="nav-submenu">
+              <summary class="nav-item">
+                <span class="nav-icon">📝</span>
+                <span class="nav-text">Steps de Teste</span>
+              </summary>
+              <ul class="nav-sublist">
+                <li><button class="nav-subitem" data-section="steps-list">Lista de Steps</button></li>
+                <li><button class="nav-subitem" data-section="steps-add">Adicionar Step</button></li>
+              </ul>
+            </details>
+          </li>
+
+          <li role="menuitem">
+            <button class="nav-item" data-section="dependencies">
+              <span class="nav-icon">🔗</span>
+              <span class="nav-text">Dependências</span>
+            </button>
+          </li>
+
+          <li role="menuitem">
+            <button class="nav-item" data-section="metadata">
+              <span class="nav-icon">🏷️</span>
+              <span class="nav-text">Metadata</span>
+            </button>
+          </li>
+
+          <li role="menuitem">
+            <button class="nav-item" data-section="faker-config">
+              <span class="nav-icon">🎲</span>
+              <span class="nav-text">Configuração Faker</span>
+            </button>
+          </li>
+
+          <li role="menuitem">
+            <button class="nav-item" data-section="exports">
+              <span class="nav-icon">📤</span>
+              <span class="nav-text">Exports</span>
+            </button>
+          </li>
+
+          <li role="menuitem">
+            <button class="nav-item" data-section="curl-importer">
+              <span class="nav-icon">🧪</span>
+              <span class="nav-text">Laboratório cURL</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Mobile toggle button -->
+      <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Alternar menu lateral">
+        <span class="sidebar-toggle-icon">☰</span>
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="main-content" class="main-content" role="main">
+      <div id="form-container" class="form-container">
+        <!-- Forms will be rendered here dynamically -->
+        <div class="placeholder-message">
+          <span class="placeholder-icon">👈</span>
+          <p>Selecione uma opção no menu lateral para começar</p>
+        </div>
+      </div>
+
+      <!-- Validation Summary -->
+      <div id="validation-summary" class="validation-summary" role="alert" aria-live="polite" style="display: none;">
+        <!-- Validation messages will appear here -->
+      </div>
+    </main>
+
+    <!-- Preview Sidebar -->
+    <aside id="preview-sidebar" class="preview-sidebar" role="complementary" aria-label="Preview do YAML">
+      <div class="preview-header">
+        <h2 class="preview-title">Preview YAML</h2>
+        <div class="preview-actions">
+          <button id="btn-toggle-preview" class="btn-icon-only" aria-label="Colapsar preview" title="Colapsar">
+            <span>◀</span>
+          </button>
+          <button id="btn-copy-yaml" class="btn-icon-only" aria-label="Copiar YAML" title="Copiar">
+            <span>📋</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="preview-content">
+        <pre id="yaml-preview" class="yaml-preview" role="region" aria-label="Conteúdo YAML gerado"><code># Seu YAML aparecerá aqui
+# Comece preenchendo os campos no formulário</code></pre>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Footer -->
+  <!-- <footer id="app-footer" class="app-footer" role="contentinfo">
+    <div class="footer-content">
+      <p class="footer-text">
+        Flow Test Engine v1.0 |
+        <a href="https://github.com/marcuspmd/flow-test" target="_blank" rel="noopener">Documentação</a> |
+        <a href="../../README.md">Sobre</a>
+      </p>
+      <p class="footer-hint">
+        <kbd>Ctrl+S</kbd> Salvar |
+        <kbd>Ctrl+O</kbd> Abrir |
+        <kbd>Ctrl+N</kbd> Novo
+      </p>
+    </div>
+  </footer> -->
+
+  <!-- Toast Notifications Container -->
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true">
+    <!-- Toast messages will appear here -->
+  </div>
+
+  <!-- Modal Container -->
+  <div id="modal-container" class="modal-container" style="display: none;" role="dialog" aria-modal="true">
+    <!-- Modals will be rendered here dynamically -->
+  </div>
+
+  <!-- Scripts -->
+  <!-- VSCode API must be acquired before any other scripts -->
+  <script nonce="{{nonce}}">
+    // Make VSCode API available globally FIRST
+    window.vscode = acquireVsCodeApi();
+  </script>
+
+  <!-- External Dependencies -->
+  <script nonce="{{nonce}}" src="{{jsYamlUri}}"></script>
+
+  <!-- Application Scripts -->
+  <script nonce="{{nonce}}" src="{{stateJsUri}}"></script>
+  <script nonce="{{nonce}}" src="{{validatorJsUri}}"></script>
+  <script nonce="{{nonce}}" src="{{yamlSerializerJsUri}}"></script>
+
+  <!-- IMPORTANT: vscode-bridge.js must load BEFORE curl-lab.js and file-manager.js -->
+  <!-- to properly intercept fetch() and override FileManager methods -->
+  <script nonce="{{nonce}}" src="{{vscodeBridgeJsUri}}"></script>
+
+  <script nonce="{{nonce}}" src="{{curlLabJsUri}}"></script>
+  <script nonce="{{nonce}}" src="{{formsJsUri}}"></script>
+  <script nonce="{{nonce}}" src="{{fileManagerJsUri}}"></script>
+  <script nonce="{{nonce}}" src="{{appJsUri}}"></script>
+</body>
+</html>

@@ -404,7 +404,9 @@
     "vscode:prepublish": "npm run build",
     "build": "npm run typecheck && npm run bundle",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist",
+    "bundle": "npm run bundle:extension && npm run bundle:webview",
+    "bundle:extension": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist",
+    "bundle:webview": "mkdir -p dist/webview && cp -r src/ui/webview/* dist/webview/",
     "watch": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist --watch",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -27,7 +27,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const commands = [
     vscode.commands.registerCommand("flow-test-runner.openTestMaker", () => {
-      TestMakerPanel.createOrShow(context.extensionUri);
+      TestMakerPanel.createOrShow(context.extensionUri, context);
     }),
 
     vscode.commands.registerCommand("flow-test-runner.refresh", () => {
