@@ -1565,12 +1565,12 @@ export class TestRunner {
       );
 
       this.outputChannel.appendLine(`✅ Execução concluída. Exit code: ${result.exitCode}`);
-      this.outputChannel.appendLine(`📊 Output length: ${JSON.stringify(result.output).length} characters`);
+      this.outputChannel.appendLine(`📊 Output length: ${result.output.length} characters`);
 
-      // Show JSON output in a new document
+      // Show RAW output in a new document
       const doc = await vscode.workspace.openTextDocument({
-        content: JSON.stringify(result.output, null, 2),
-        language: 'json'
+        content: result.output,
+        language: 'text' // Use plain text to show raw output
       });
       await vscode.window.showTextDocument(doc, {
         preview: false,
@@ -1612,7 +1612,7 @@ export class TestRunner {
     collectedInputs: Record<string, string> = {}
   ): Promise<{ success: boolean; exitCode: number; output: any; error?: string }> {
     return new Promise((resolve, reject) => {
-      const args = [relativePath, '--verbose'];
+      const args = [relativePath, '--verbose', '--no-report'];
 
       // Add interactive flag if using interactive mode
       if (useInteractiveInputs) {
@@ -1716,25 +1716,13 @@ export class TestRunner {
         this.outputChannel.appendLine(`📊 Total output length: ${output.length} bytes`);
         this.outputChannel.appendLine(`📊 Total error length: ${errorOutput.length} bytes`);
 
-        // Try to parse JSON output
-        let parsedOutput: any;
-        try {
-          parsedOutput = JSON.parse(output);
-          this.outputChannel.appendLine('✅ Successfully parsed JSON output');
-        } catch (parseError) {
-          this.outputChannel.appendLine(`⚠️ Failed to parse JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
-          // If not JSON, return as plain text wrapped in object
-          parsedOutput = {
-            raw_output: output,
-            error_output: errorOutput,
-            exit_code: exitCode
-          };
-        }
+        // Return raw output for debugging
+        this.outputChannel.appendLine('📋 Returning RAW output for debugging');
 
         resolve({
           success,
           exitCode,
-          output: parsedOutput,
+          output: output, // Return raw string output
           error: errorOutput || undefined
         });
       });
