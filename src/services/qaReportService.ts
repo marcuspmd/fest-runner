@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import * as os from "os";
+import { execFile } from "child_process";
 import { pathToFileURL } from "url";
 import { ConfigService } from "./configService";
 import { FlowTestConfig, TestExecutionState } from "../models/types";
@@ -164,6 +166,13 @@ interface QaReportBuildResult {
   pdfPath?: string | null;
 }
 
+interface DerivedReportContext {
+  responsible?: string;
+  buildVersion?: string;
+  environment?: string;
+  objective?: string;
+}
+
 interface RenderContext {
   sourcePath: string;
   workspacePath?: string;
@@ -296,16 +305,28 @@ export class QaReportService implements vscode.Disposable {
     const htmlPath = this.resolveHtmlOutputPath(locatedReport.path);
     await fs.promises.mkdir(path.dirname(htmlPath), { recursive: true });
 
-    const htmlContent = this.renderHtml(locatedReport.data, {
+    const renderContext: RenderContext = {
       sourcePath: locatedReport.path,
       workspacePath,
+    };
+
+    const derivedContext = await this.resolveDerivedContext(
+      workspacePath,
+      locatedReport.data
+    );
+
+    const htmlContent = this.renderHtml(locatedReport.data, renderContext, {
+      derived: derivedContext,
     });
 
     await fs.promises.writeFile(htmlPath, htmlContent, "utf8");
     const pdfPath = await this.generatePdfFromHtml(
+      locatedReport.data,
+      renderContext,
       htmlPath,
       path.dirname(locatedReport.path),
-      configToUse
+      configToUse,
+      derivedContext
     );
     return {
       htmlPath,
@@ -439,9 +460,12 @@ export class QaReportService implements vscode.Disposable {
   }
 
   private async generatePdfFromHtml(
+    data: QaReportData,
+    renderContext: RenderContext,
     htmlPath: string,
     reportDir: string,
-    config: FlowTestConfig
+    config: FlowTestConfig,
+    derived: DerivedReportContext
   ): Promise<string | null> {
     const executablePath = await this.resolveBrowserExecutable(config);
     if (!executablePath) {
@@ -469,7 +493,18 @@ export class QaReportService implements vscode.Disposable {
       // Ignore directory creation failures; pdf generation will surface later.
     }
 
-    const fileUrl = pathToFileURL(htmlPath).toString();
+    const tempDir = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "qa-report-")
+    );
+    const tempHtmlPath = path.join(tempDir, path.basename(htmlPath));
+    const truncatedHtml = this.renderHtml(data, renderContext, {
+      maxResponseLines: 40,
+      derived,
+    });
+
+    await fs.promises.writeFile(tempHtmlPath, truncatedHtml, "utf8");
+
+    const fileUrl = pathToFileURL(tempHtmlPath).toString();
     let browser: import("puppeteer-core").Browser | null = null;
 
     try {
@@ -509,16 +544,27 @@ export class QaReportService implements vscode.Disposable {
           // ignore
         }
       }
+      try {
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 
-  private renderHtml(data: QaReportData, context: RenderContext): string {
+  private renderHtml(
+    data: QaReportData,
+    context: RenderContext,
+    options?: { maxResponseLines?: number; derived?: DerivedReportContext }
+  ): string {
     const summary = data.executive_summary ?? {};
     const testCases = Array.isArray(data.test_cases) ? data.test_cases : [];
     const metrics = data.metrics ?? {};
     const issues = Array.isArray(data.issues) ? data.issues : [];
     const performance = data.performance;
     const metadata = data.report_metadata ?? {};
+
+    const derived = options?.derived ?? {};
 
     const runDate = this.formatDate(summary.test_run_date);
     const runTime = summary.test_run_time ?? "—";
@@ -532,21 +578,44 @@ export class QaReportService implements vscode.Disposable {
       "—";
 
     const status = summary.overall_status ?? "UNKNOWN";
-    const statusBadgeClass = this.resolveStatusClass(status);
-    const statusLabel = status.toUpperCase();
 
     const generatedAt = this.formatDateTime(metadata.generated_at);
+    const translatedMetadataDescription = this.translateObjectiveText(
+      metadata.description
+    );
     const reportDescription =
-      metadata.description ?? "Relatório QA gerado pelo Flow Test Runner.";
+      translatedMetadataDescription ??
+      metadata.description ??
+      derived.objective ??
+      "Relatório QA gerado pelo Flow Test Runner.";
+
+    const defaultObjective =
+      "Relatório orientado para equipes de QA/testers, adequado para documentação e geração em HTML/PDF.";
+    const objective =
+      summary.objective ??
+      derived.objective ??
+      translatedMetadataDescription ??
+      defaultObjective;
+
+    const buildVersion = summary.project_version ?? derived.buildVersion;
+    const responsible = summary.owner ?? derived.responsible;
+    const environment = summary.environment ?? derived.environment;
 
     const sourceDisplayPath = this.toDisplayPath(
       context.sourcePath,
       context.workspacePath
     );
 
-    const testCaseRows = this.renderTestCaseRows(testCases);
+    const testCaseRows = this.renderTestCaseRows(
+      testCases,
+      context.workspacePath
+    );
     const stepRows = this.renderStepRows(testCases);
-    const curlSections = this.renderCurlSections(testCases);
+    const curlSections = this.renderCurlSections(
+      testCases,
+      options?.maxResponseLines,
+      context.workspacePath
+    );
     const issuesSection = this.renderIssuesSection(issues);
     const performanceSection = this.renderPerformanceSection(performance);
 
@@ -570,6 +639,50 @@ export class QaReportService implements vscode.Disposable {
     const stepsSkipped = metrics.steps_skipped ?? 0;
 
     const prioritySummary = this.renderPrioritySummary(metrics.by_priority);
+
+    const allTestsPassed =
+      suitesFailed === 0 &&
+      stepsFailed === 0 &&
+      testCases.every(
+        (testCase) => (testCase.status ?? "").toLowerCase() !== "failed"
+      );
+
+    const statusBadgeClass = allTestsPassed
+      ? "badge-success"
+      : this.resolveStatusClass(status);
+    const statusLabel = status.toUpperCase();
+    const finalStatusMessage = allTestsPassed
+      ? "✅ Aprovado para implantação"
+      : "⚠️ Em atenção";
+
+    const projectInfoLines = [
+      `<p><strong>Nome:</strong> ${this.escapeHtml(
+        summary.project_name ?? "Não informado"
+      )}</p>`,
+    ];
+
+    if (buildVersion) {
+      projectInfoLines.push(
+        `<p><strong>Versão / Build:</strong> ${this.escapeHtml(buildVersion)}</p>`
+      );
+    }
+
+    if (responsible) {
+      projectInfoLines.push(
+        `<p><strong>Responsável:</strong> ${this.escapeHtml(responsible)}</p>`
+      );
+    }
+
+    const executionInfoLines = [
+      `<p><strong>Data do Relatório:</strong> ${this.escapeHtml(runDate)}</p>`,
+      `<p><strong>Horário de Execução:</strong> ${this.escapeHtml(runTime)}</p>`,
+    ];
+
+    if (environment) {
+      executionInfoLines.push(
+        `<p><strong>Ambiente:</strong> ${this.escapeHtml(environment)}</p>`
+      );
+    }
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -664,6 +777,34 @@ export class QaReportService implements vscode.Disposable {
         vertical-align: top;
       }
 
+      table.subtable {
+        margin: 12px 0 4px;
+        font-size: 0.95rem;
+        width: 100%;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+        background: #ffffff;
+      }
+
+      table.subtable th,
+      table.subtable td {
+        padding: 8px 10px;
+        border: 1px solid rgba(209, 213, 219, 0.6);
+        vertical-align: top;
+        background: #f9fafb;
+      }
+
+      .value-block {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        background: rgba(148, 163, 184, 0.16);
+        padding: 4px 6px;
+        border-radius: 6px;
+        margin-top: 4px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
       th {
         background: rgba(30, 136, 229, 0.08);
         color: var(--primary);
@@ -731,6 +872,11 @@ export class QaReportService implements vscode.Disposable {
         color: var(--muted);
       }
 
+      .muted-small {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
       .highlight {
         font-weight: 600;
         color: var(--accent);
@@ -742,6 +888,8 @@ export class QaReportService implements vscode.Disposable {
         padding: 2px 6px;
         border-radius: 4px;
         font-size: 0.85rem;
+        word-break: break-word;
+        white-space: pre-wrap;
       }
 
       pre {
@@ -754,6 +902,8 @@ export class QaReportService implements vscode.Disposable {
         line-height: 1.5;
         box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.25);
         margin: 12px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       .section-note {
@@ -786,32 +936,16 @@ export class QaReportService implements vscode.Disposable {
       <div class="grid two">
         <div class="card">
           <h3>Projeto</h3>
-          <p><strong>Nome:</strong> ${this.escapeHtml(
-            summary.project_name ?? "Não informado"
-          )}</p>
-          <p><strong>Versão / Build:</strong> ${this.escapeHtml(
-            summary.project_version ?? "Não informado"
-          )}</p>
-          <p><strong>Responsável:</strong> ${this.escapeHtml(
-            summary.owner ?? "Não informado"
-          )}</p>
+          ${projectInfoLines.join("\n")}
         </div>
         <div class="card">
           <h3>Janela de Execução</h3>
-          <p><strong>Data do Relatório:</strong> ${this.escapeHtml(runDate)}</p>
-          <p><strong>Horário de Execução:</strong> ${this.escapeHtml(runTime)}</p>
-          <p><strong>Ambiente:</strong> ${this.escapeHtml(
-            summary.environment ?? "Não informado"
-          )}</p>
+          ${executionInfoLines.join("\n")}
         </div>
       </div>
       <div class="section-note">
         <p>
-          <strong>Objetivo:</strong> ${this.escapeHtml(
-            summary.objective ??
-              reportDescription ??
-              "Execução automatizada dos testes funcionais priorizados."
-          )}
+          <strong>Objetivo:</strong> ${this.escapeHtml(objective)}
         </p>
       </div>
     </section>
@@ -886,7 +1020,6 @@ export class QaReportService implements vscode.Disposable {
             <th>Prioridade</th>
             <th>Status</th>
             <th>Duração</th>
-            <th>Arquivo</th>
           </tr>
         </thead>
         <tbody>
@@ -903,7 +1036,7 @@ export class QaReportService implements vscode.Disposable {
             <th>Tipo</th>
             <th>Status</th>
             <th>Duração</th>
-            <th>Notas</th>
+            <th>Detalhes</th>
           </tr>
         </thead>
         <tbody>
@@ -944,11 +1077,7 @@ export class QaReportService implements vscode.Disposable {
         <li>Bugs críticos encontrados: ${issues.filter((issue) =>
           (issue.severity ?? "").toLowerCase() === "critical"
         ).length}</li>
-        <li>Status geral: ${
-          statusBadgeClass === "badge-success"
-            ? "✅ Aprovado para implantação"
-            : "⚠️ Em atenção"
-        }</li>
+        <li>Status geral: ${finalStatusMessage}</li>
       </ul>
       ${performanceSection}
     </section>
@@ -1006,9 +1135,12 @@ export class QaReportService implements vscode.Disposable {
     return html;
   }
 
-  private renderTestCaseRows(testCases: QaTestCase[]): string {
+  private renderTestCaseRows(
+    testCases: QaTestCase[],
+    workspacePath?: string
+  ): string {
     if (testCases.length === 0) {
-      return `<tr><td colspan="7" class="muted">Nenhum caso de teste registrado.</td></tr>`;
+      return `<tr><td colspan="6" class="muted">Nenhum caso de teste registrado.</td></tr>`;
     }
 
     return testCases
@@ -1020,22 +1152,31 @@ export class QaReportService implements vscode.Disposable {
           testCase.duration ??
           this.formatDuration(testCase.duration_ms) ??
           "—";
-        const filePath = testCase.file_path
-          ? this.escapeHtml(testCase.file_path)
-          : "—";
+        const rawFilePath = testCase.file_path
+          ? this.toDisplayPath(testCase.file_path, workspacePath)
+          : undefined;
+        const filePath = rawFilePath ? this.escapeHtml(rawFilePath) : "";
+        const description = this.escapeHtml(testCase.description ?? "—");
+        const fileLine = filePath
+          ? `<div class="muted-small">${filePath}</div>`
+          : "";
+        const suiteName = this.escapeHtml(testCase.suite_name ?? "—");
+        const testCaseId = this.escapeHtml(testCase.test_case_id ?? "—");
+        const priority = this.escapeHtml(
+          this.capitalize(testCase.priority) ?? "—"
+        );
+        const statusLabel = this.escapeHtml(
+          (testCase.status ?? "—").toUpperCase()
+        );
+        const durationDisplay = this.escapeHtml(duration);
 
         return `<tr>
-          <td><code>${this.escapeHtml(testCase.test_case_id ?? "—")}</code></td>
-          <td>${this.escapeHtml(testCase.suite_name ?? "—")}</td>
-          <td>${this.escapeHtml(testCase.description ?? "—")}</td>
-          <td>${this.escapeHtml(
-            this.capitalize(testCase.priority) ?? "—"
-          )}</td>
-          <td class="status ${statusClass}">${this.escapeHtml(
-          (testCase.status ?? "—").toUpperCase()
-        )}</td>
-          <td>${this.escapeHtml(duration)}</td>
-          <td><code>${filePath}</code></td>
+          <td><code>${testCaseId}</code></td>
+          <td>${suiteName}</td>
+          <td>${description}${fileLine}</td>
+          <td>${priority}</td>
+          <td class="status ${statusClass}">${statusLabel}</td>
+          <td>${durationDisplay}</td>
         </tr>`;
       })
       .join("\n");
@@ -1082,7 +1223,7 @@ export class QaReportService implements vscode.Disposable {
         const noteContent =
           notes.length > 0 ? notes.join("<br/>") : "<span class=\"muted\">—</span>";
 
-        rows.push(`<tr>
+        const baseRow = `<tr>
           <td>${this.escapeHtml(
             String(step.step_number ?? step.step_id ?? "—")
           )}</td>
@@ -1093,7 +1234,16 @@ export class QaReportService implements vscode.Disposable {
         )}</td>
           <td>${this.escapeHtml(duration)}</td>
           <td>${noteContent}</td>
-        </tr>`);
+        </tr>`;
+
+        rows.push(baseRow);
+
+        const assertionsTable = this.renderStepAssertionsTable(step.assertions);
+        if (assertionsTable) {
+          rows.push(
+            `<tr class="step-assertions"><td colspan="6">${assertionsTable}</td></tr>`
+          );
+        }
       }
     }
 
@@ -1104,7 +1254,11 @@ export class QaReportService implements vscode.Disposable {
     return rows.join("\n");
   }
 
-  private renderCurlSections(testCases: QaTestCase[]): string {
+  private renderCurlSections(
+    testCases: QaTestCase[],
+    maxResponseLines?: number,
+    workspacePath?: string
+  ): string {
     const cards: string[] = [];
 
     for (const testCase of testCases) {
@@ -1117,10 +1271,22 @@ export class QaReportService implements vscode.Disposable {
           testCase.test_case_id ?? testCase.suite_name ?? "Teste"
         } — ${step.step_name ?? step.step_id ?? `Step ${step.step_number ?? ""}`}`;
         const requestCurl = this.formatCurlCommand(step.request);
-        const responseDump = this.formatCurlResponse(step.response);
+        const responseDump = this.formatCurlResponse(
+          step.response,
+          maxResponseLines
+        );
+        const fileDisplay = testCase.file_path
+          ? this.escapeHtml(
+              this.toDisplayPath(testCase.file_path, workspacePath)
+            )
+          : "";
+        const fileLine = fileDisplay
+          ? `<p><strong>Arquivo:</strong> <code>${fileDisplay}</code></p>`
+          : "";
 
         cards.push(`<div class="card">
           <h3>${this.escapeHtml(title)}</h3>
+          ${fileLine}
           <p><strong>cURL Request:</strong></p>
           <pre><code>${this.escapeHtml(requestCurl)}</code></pre>
           <p><strong>Resposta:</strong></p>
@@ -1134,6 +1300,60 @@ export class QaReportService implements vscode.Disposable {
     }
 
     return cards.join("\n");
+  }
+
+  private renderStepAssertionsTable(assertions?: QaAssertion[]): string {
+    if (!Array.isArray(assertions) || assertions.length === 0) {
+      return "";
+    }
+
+    const rows = assertions
+      .map((assertion, index) => {
+        const expectedRaw = this.formatAssertionValue(assertion.expected);
+        const actualRaw = this.formatAssertionValue(assertion.actual);
+        const expected = this.escapeHtml(
+          this.truncateText(expectedRaw)
+        );
+        const actual = this.escapeHtml(this.truncateText(actualRaw));
+        const message = assertion.message
+          ? this.escapeHtml(this.truncateText(assertion.message, 160))
+          : "—";
+        const statusLabel = assertion.passed ? "PASSED" : "FAILED";
+        const statusClass = assertion.passed ? "passed" : "failed";
+
+        const fieldName = this.escapeHtml(assertion.field ?? "—");
+        const description = assertion.description
+          ? `<div class="muted-small">${this.escapeHtml(
+              this.truncateText(assertion.description, 160)
+            )}</div>`
+          : "";
+
+        return `<tr>
+          <td>${index + 1}</td>
+          <td><div><code>${fieldName}</code></div>${description}</td>
+          <td><div class="value-block">${expected}</div></td>
+          <td><div class="value-block">${actual}</div></td>
+          <td class="status ${statusClass}">${statusLabel}</td>
+          <td>${message}</td>
+        </tr>`;
+      })
+      .join("\n");
+
+    return `<table class="subtable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Campo / Assertiva</th>
+          <th>Esperado</th>
+          <th>Atual</th>
+          <th>Status</th>
+          <th>Mensagem</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>`;
   }
 
   private renderIssuesSection(issues: QaIssue[]): string {
@@ -1275,6 +1495,205 @@ export class QaReportService implements vscode.Disposable {
       .join("\n");
   }
 
+  private translateObjectiveText(value?: string | null): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const normalized = trimmed.toLowerCase();
+    const defaultEnglish =
+      "qa/tester-friendly report format designed for documentation and html/pdf generation";
+
+    if (normalized === defaultEnglish) {
+      return "Relatório orientado para equipes de QA/testers, adequado para documentação e geração em HTML/PDF.";
+    }
+
+    return trimmed;
+  }
+
+  private truncateText(value: string, maxLength: number = 140): string {
+    if (!value) {
+      return "";
+    }
+
+    const normalized = String(value);
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+
+    return normalized.slice(0, Math.max(0, maxLength - 1)) + "…";
+  }
+
+  private async resolveDerivedContext(
+    workspacePath: string,
+    data: QaReportData
+  ): Promise<DerivedReportContext> {
+    const resolvedWorkspace = workspacePath || process.cwd();
+    const [responsible, buildVersion, environment] = await Promise.all([
+      this.resolveResponsibleName(resolvedWorkspace),
+      this.resolveBuildVersion(resolvedWorkspace),
+      this.resolveEnvironment(resolvedWorkspace),
+    ]);
+
+    const objective =
+      this.translateObjectiveText(data.report_metadata?.description) ??
+      this.translateObjectiveText(data.executive_summary?.objective ?? undefined);
+
+    return {
+      responsible: responsible ?? undefined,
+      buildVersion: buildVersion ?? undefined,
+      environment: environment ?? undefined,
+      objective: objective ?? undefined,
+    };
+  }
+
+  private async resolveResponsibleName(
+    workspacePath: string
+  ): Promise<string | null> {
+    const gitUser = await this.runGitCommand(
+      ["config", "user.name"],
+      workspacePath
+    );
+    if (gitUser) {
+      return gitUser;
+    }
+
+    try {
+      const user = os.userInfo();
+      return user?.username ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveBuildVersion(
+    workspacePath: string
+  ): Promise<string | null> {
+    const envCandidates = [
+      process.env.BUILD_VERSION,
+      process.env.GIT_COMMIT,
+      process.env.GITHUB_SHA,
+    ].filter(Boolean);
+
+    if (envCandidates.length > 0) {
+      return envCandidates[0] ?? null;
+    }
+
+    const gitTag = await this.runGitCommand(
+      ["describe", "--tags", "--always"],
+      workspacePath
+    );
+    if (gitTag) {
+      return gitTag;
+    }
+
+    const gitCommit = await this.runGitCommand(
+      ["rev-parse", "--short", "HEAD"],
+      workspacePath
+    );
+    return gitCommit;
+  }
+
+  private async resolveEnvironment(
+    workspacePath: string
+  ): Promise<string | null> {
+    const envCandidates = [
+      process.env.ENVIRONMENT,
+      process.env.NODE_ENV,
+      process.env.APP_ENV,
+      process.env.DEPLOYMENT_ENV,
+    ].filter((value): value is string => Boolean(value && value.trim()));
+
+    if (envCandidates.length > 0) {
+      return envCandidates[0];
+    }
+
+    const envFromFile = await this.readEnvVariable(workspacePath, [
+      "ENVIRONMENT",
+      "NODE_ENV",
+      "APP_ENV",
+      "DEPLOYMENT_ENV",
+    ]);
+
+    return envFromFile;
+  }
+
+  private async readEnvVariable(
+    workspacePath: string,
+    keys: string[]
+  ): Promise<string | null> {
+    const uniqueKeys = Array.from(new Set(keys));
+    const envFiles = [
+      ".env",
+      ".env.local",
+      ".env.qa",
+      ".env.staging",
+      ".env.production",
+    ];
+
+    for (const fileName of envFiles) {
+      const fullPath = path.join(workspacePath, fileName);
+      const stat = await this.tryStat(fullPath);
+      if (!stat || !stat.isFile()) {
+        continue;
+      }
+
+      let content: string;
+      try {
+        content = await fs.promises.readFile(fullPath, "utf8");
+      } catch {
+        continue;
+      }
+
+      const lines = content.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+          continue;
+        }
+
+        const delimiterIndex = trimmed.indexOf("=");
+        if (delimiterIndex <= 0) {
+          continue;
+        }
+
+        const key = trimmed.slice(0, delimiterIndex).trim();
+        if (!uniqueKeys.includes(key)) {
+          continue;
+        }
+
+        let value = trimmed.slice(delimiterIndex + 1).trim();
+        value = value.replace(/^['"]|['"]$/g, "");
+        if (value.length > 0) {
+          return value;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private async runGitCommand(
+    args: string[],
+    cwd: string
+  ): Promise<string | null> {
+    return await new Promise((resolve) => {
+      execFile("git", args, { cwd }, (error, stdout) => {
+        if (error) {
+          resolve(null);
+          return;
+        }
+        const output = stdout.trim();
+        resolve(output.length > 0 ? output : null);
+      });
+    });
+  }
+
   private formatCurlCommand(request: QaRequest): string {
     if (request.curl_command && request.curl_command.trim().length > 0) {
       return request.curl_command.trim();
@@ -1301,7 +1720,10 @@ export class QaReportService implements vscode.Disposable {
     return lines.join("\n");
   }
 
-  private formatCurlResponse(response: QaResponse): string {
+  private formatCurlResponse(
+    response: QaResponse,
+    maxLines?: number
+  ): string {
     const statusLine = `HTTP/1.1 ${response.status_code ?? ""} ${
       response.status_text ?? ""
     }`.trim();
@@ -1331,7 +1753,23 @@ export class QaReportService implements vscode.Disposable {
       lines.push(`// size: ${response.size}`);
     }
 
-    return lines.join("\n");
+    const output = lines.join("\n");
+
+    if (typeof maxLines === "number" && maxLines > 0) {
+      const max = Math.max(1, Math.floor(maxLines));
+      const allLines = output.split(/\r?\n/);
+      if (allLines.length > max) {
+        const truncatedLines = allLines.slice(0, max);
+        truncatedLines.push("...");
+        truncatedLines.push(`// conteúdo truncado para ${max} linhas no PDF`);
+        truncatedLines.push(
+          `// linhas originais: ${allLines.length}`
+        );
+        return truncatedLines.join("\n");
+      }
+    }
+
+    return output;
   }
 
   private formatDate(value?: string): string {
@@ -1414,6 +1852,26 @@ export class QaReportService implements vscode.Disposable {
       return value;
     }
     return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  }
+
+  private formatAssertionValue(value: unknown): string {
+    if (value === null) {
+      return "null";
+    }
+    if (value === undefined) {
+      return "—";
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   }
 
   private escapeHtml(value: unknown): string {

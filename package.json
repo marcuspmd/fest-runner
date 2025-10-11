@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
@@ -100,17 +100,17 @@
       },
       {
         "command": "flow-test-runner.retest",
-        "title": "Retest Last",
+        "title": "Flow Test Engine: Retest Last",
         "icon": "$(debug-restart)"
       },
       {
         "command": "flow-test-runner.retestQa",
-        "title": "Retest Last (QA Report)",
+        "title": "Flow Test Engine: Retest Last (QA Report)",
         "icon": "$(beaker)"
       },
       {
         "command": "flow-test-runner.generateQaReport",
-        "title": "Generate QA HTML Report",
+        "title": "Flow Test Engine: Generate QA HTML Report",
         "icon": "$(report)"
       },
       {
@@ -165,7 +165,7 @@
       },
       {
         "command": "flow-test-runner.rerunLast",
-        "title": "Flow Test Runner: Rerun Last Test",
+        "title": "Flow Test Engine: Retest Last",
         "icon": "$(debug-restart)"
       },
       {
@@ -195,16 +195,6 @@
           "command": "flow-test-runner.refresh",
           "when": "view == flowTestExplorer",
           "group": "navigation@1"
-        },
-        {
-          "command": "flow-test-runner.retest",
-          "when": "view == flowTestExplorer",
-          "group": "navigation@2"
-        },
-        {
-          "command": "flow-test-runner.retestQa",
-          "when": "view == flowTestExplorer",
-          "group": "navigation@2.5"
         },
         {
           "command": "flow-test-runner.generateQaReport",
