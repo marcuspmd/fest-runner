@@ -10,6 +10,7 @@ import { GraphService, GraphGenerationResult } from "./services/graphService";
 import { ImportExportService } from "./services/importExportService";
 import { FlowTestConfig, FlowTestGraphDirection } from "./models/types";
 import { TestMakerPanel } from "./ui/TestMakerPanel";
+import { QaReportService } from "./services/qaReportService";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -19,6 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
   const htmlResultsService = HtmlResultsService.getInstance();
   const graphService = GraphService.getInstance();
   const importExportService = ImportExportService.getInstance();
+  const qaReportService = QaReportService.getInstance();
 
   // Injetar TestRunner no HtmlResultsService para funcionalidade de rerun
   htmlResultsService.setTestRunner(testRunner);
@@ -76,6 +78,43 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flow-test-runner.retest", async () => {
       await testRunner.retestLast();
     }),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.retestQa",
+      async () => {
+        await testRunner.retestLast({
+          reportFormats: ["qa"],
+          description: "Retesting last execution with QA report",
+        });
+        const state = testRunner.getLastExecutionState();
+        if (state) {
+          try {
+            await qaReportService.generateFromExecutionState(state);
+          } catch {
+            // Error already handled inside the service.
+          }
+        }
+      }
+    ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.generateQaReport",
+      async () => {
+        const workspaceFolder = await selectWorkspaceFolder();
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage("No workspace folder found");
+          return;
+        }
+
+        try {
+          await qaReportService.generateHtmlReportForWorkspace(
+            workspaceFolder.uri.fsPath
+          );
+        } catch {
+          // Errors are reported within the service.
+        }
+      }
+    ),
 
     vscode.commands.registerCommand(
       "flow-test-runner.viewResults",
@@ -226,7 +265,8 @@ export function activate(context: vscode.ExtensionContext) {
     testScanner,
     testRunner,
     htmlResultsService,
-    importExportService
+    importExportService,
+    qaReportService
   );
 
   checkForFlowTests(configService);

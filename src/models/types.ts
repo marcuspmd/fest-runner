@@ -75,10 +75,15 @@ export interface FlowTestConfig {
   graph?: FlowTestGraphConfig;
   reporting?: {
     outputDir?: string;
+    formats?: string[];
     html?: {
       outputSubdir?: string;
       perSuite?: boolean;
       aggregate?: boolean;
+    };
+    pdf?: {
+      executablePath?: string;
+      outputSubdir?: string;
     };
   };
 }

@@ -45,6 +45,7 @@ describe("TestScanner", () => {
         },
       }),
       invalidateConfigForFile: vi.fn(),
+      hasConfigFile: vi.fn().mockResolvedValue(true),
     } as unknown as ConfigService;
 
     const configSpy = vi

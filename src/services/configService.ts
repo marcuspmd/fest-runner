@@ -108,10 +108,21 @@ export class ConfigService {
           mergedReporting.outputDir = layer.outputDir;
         }
 
+        if (layer.formats && layer.formats.length > 0) {
+          mergedReporting.formats = [...layer.formats];
+        }
+
         if (layer.html) {
           mergedReporting.html = {
             ...mergedReporting.html,
             ...layer.html,
+          };
+        }
+
+        if (layer.pdf) {
+          mergedReporting.pdf = {
+            ...mergedReporting.pdf,
+            ...layer.pdf,
           };
         }
       }
@@ -205,6 +216,37 @@ export class ConfigService {
 
     if (Object.keys(graphConfig).length > 0) {
       partialConfig.graph = graphConfig;
+    }
+
+    const reportFormatsSetting = config.get<string[]>("reportFormats");
+    const normalizedFormats = this.normalizeReportFormats(reportFormatsSetting);
+    if (normalizedFormats.length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        formats: normalizedFormats,
+      };
+    }
+
+    const pdfExecutable = config.get<string>("pdfBrowserExecutable");
+    if (pdfExecutable && pdfExecutable.trim().length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        pdf: {
+          ...(partialConfig.reporting?.pdf ?? {}),
+          executablePath: pdfExecutable.trim(),
+        },
+      };
+    }
+
+    const pdfOutputSubdir = config.get<string>("pdfOutputSubdir");
+    if (pdfOutputSubdir && pdfOutputSubdir.trim().length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        pdf: {
+          ...(partialConfig.reporting?.pdf ?? {}),
+          outputSubdir: pdfOutputSubdir.trim(),
+        },
+      };
     }
 
     return partialConfig;
@@ -307,6 +349,18 @@ export class ConfigService {
         reportingConfig.outputDir = outputDirValue.trim();
       }
 
+      const formatsSource =
+        reportingSource.formats ??
+        reportingSource.format ??
+        reportingSource.outputFormats ??
+        reportingSource.output_formats ??
+        reportingSource.outputFormat ??
+        reportingSource.output_format;
+      const normalizedFormats = this.normalizeReportFormats(formatsSource);
+      if (normalizedFormats.length > 0) {
+        reportingConfig.formats = normalizedFormats;
+      }
+
       if (reportingSource.html && typeof reportingSource.html === "object") {
         const htmlSource = reportingSource.html;
         const htmlConfig: NonNullable<
@@ -334,6 +388,46 @@ export class ConfigService {
 
         if (Object.keys(htmlConfig).length > 0) {
           reportingConfig.html = htmlConfig;
+        }
+      }
+
+      const pdfSource =
+        reportingSource.pdf && typeof reportingSource.pdf === "object"
+          ? reportingSource.pdf
+          : undefined;
+      if (pdfSource) {
+        const pdfConfig: NonNullable<
+          NonNullable<FlowTestConfig["reporting"]>["pdf"]
+        > = {};
+
+        const executableCandidate =
+          pdfSource.executablePath ??
+          pdfSource.executable_path ??
+          pdfSource.browser ??
+          pdfSource.path ??
+          reportingSource.pdfExecutable ??
+          reportingSource.pdf_executable;
+        if (
+          typeof executableCandidate === "string" &&
+          executableCandidate.trim().length > 0
+        ) {
+          pdfConfig.executablePath = executableCandidate.trim();
+        }
+
+        const outputSubdirCandidate =
+          pdfSource.outputSubdir ??
+          pdfSource.output_subdir ??
+          reportingSource.pdfOutputSubdir ??
+          reportingSource.pdf_output_subdir;
+        if (
+          typeof outputSubdirCandidate === "string" &&
+          outputSubdirCandidate.trim().length > 0
+        ) {
+          pdfConfig.outputSubdir = outputSubdirCandidate.trim();
+        }
+
+        if (Object.keys(pdfConfig).length > 0) {
+          reportingConfig.pdf = pdfConfig;
         }
       }
 
@@ -466,6 +560,38 @@ export class ConfigService {
       patterns: normalizedPatterns,
       exclude: Array.from(excludeSet),
     };
+  }
+
+  private normalizeReportFormats(source: any): string[] {
+    if (!source) {
+      return [];
+    }
+
+    const values: string[] = [];
+
+    const append = (value: unknown) => {
+      if (typeof value !== "string") {
+        return;
+      }
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed.length > 0) {
+        values.push(trimmed);
+      }
+    };
+
+    if (Array.isArray(source)) {
+      for (const item of source) {
+        append(item);
+      }
+    } else if (typeof source === "string") {
+      const delimiter = source.includes(",") ? "," : /\s+/;
+      const tokens = source.split(delimiter);
+      for (const token of tokens) {
+        append(token);
+      }
+    }
+
+    return this.dedupeStrings(values);
   }
 
   private normalizeGraphInput(value: any): FlowTestGraphConfig | undefined {

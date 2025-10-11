@@ -104,6 +104,16 @@
         "icon": "$(debug-restart)"
       },
       {
+        "command": "flow-test-runner.retestQa",
+        "title": "Retest Last (QA Report)",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "flow-test-runner.generateQaReport",
+        "title": "Generate QA HTML Report",
+        "icon": "$(report)"
+      },
+      {
         "command": "flow-test-runner.viewResults",
         "title": "View Results",
         "icon": "$(preview)"
@@ -192,6 +202,16 @@
           "group": "navigation@2"
         },
         {
+          "command": "flow-test-runner.retestQa",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@2.5"
+        },
+        {
+          "command": "flow-test-runner.generateQaReport",
+          "when": "view == flowTestExplorer",
+          "group": "navigation@2.6"
+        },
+        {
           "command": "flow-test-runner.generateGraph",
           "when": "view == flowTestExplorer",
           "group": "navigation@3"
@@ -272,6 +292,14 @@
       "commandPalette": [
         {
           "command": "flow-test-runner.retest",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.retestQa",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.generateQaReport",
           "when": "workspaceHasFlowTests"
         },
         {
@@ -374,6 +402,24 @@
           "default": "both",
           "description": "Output format for test results"
         },
+        "flowTestRunner.reportFormats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Optional list of Flow Test Engine report formats to request via --format (for example [\"json\", \"html\", \"qa\"]). When provided, overrides outputFormat."
+        },
+        "flowTestRunner.pdfBrowserExecutable": {
+          "type": "string",
+          "markdownDescription": "Absolute path for a local Chrome/Chromium (or Edge) executable used to render QA reports to PDF. Example: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.",
+          "description": "Path to the browser executable used for QA PDF generation."
+        },
+        "flowTestRunner.pdfOutputSubdir": {
+          "type": "string",
+          "description": "Optional folder (relative to the Flow Test reporting output directory or absolute) where QA PDF files should be written."
+        },
         "flowTestRunner.timeout": {
           "type": "number",
           "default": 30000,
@@ -433,6 +479,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "puppeteer-core": "^22.15.0",
     "yaml": "^2.3.4"
   }
 }

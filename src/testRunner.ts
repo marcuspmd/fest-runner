@@ -389,7 +389,20 @@ export class TestRunner {
         finalArgs.push(FLOW_INPUT_FLAG);
       }
 
-      if (config.outputFormat === "html" || config.outputFormat === "both") {
+      const rawConfiguredFormats = config.reporting?.formats;
+      const hasExplicitFormats =
+        Array.isArray(rawConfiguredFormats) && rawConfiguredFormats.length > 0;
+      const reportFormats = this.resolveReportFormats(config);
+      if (reportFormats.length > 0) {
+        finalArgs.push("--format", reportFormats.join(","));
+      }
+
+      const shouldEnableHtmlOutput =
+        hasExplicitFormats
+          ? reportFormats.includes("html")
+          : config.outputFormat === "html" || config.outputFormat === "both";
+
+      if (shouldEnableHtmlOutput && !finalArgs.includes("--html-output")) {
         finalArgs.push("--html-output");
       }
 
@@ -1096,6 +1109,27 @@ export class TestRunner {
     return { submissions, userInputs };
   }
 
+  private resolveReportFormats(config: FlowTestConfig): string[] {
+    const formats = config.reporting?.formats;
+    if (Array.isArray(formats) && formats.length > 0) {
+      const normalized = formats
+        .map((format) => format.trim().toLowerCase())
+        .filter((format) => format.length > 0);
+      return Array.from(new Set(normalized));
+    }
+
+    switch (config.outputFormat) {
+      case "html":
+        return ["html"];
+      case "both":
+        return ["json", "html"];
+      case "json":
+        return ["json"];
+      default:
+        return [];
+    }
+  }
+
   private getReportOutputCandidates(
     config: FlowTestConfig,
     cwd: string
@@ -1383,7 +1417,10 @@ export class TestRunner {
     }
   }
 
-  async retestLast(): Promise<void> {
+  async retestLast(options?: {
+    reportFormats?: string[];
+    description?: string;
+  }): Promise<void> {
     if (!this.lastExecutionState) {
       vscode.window.showWarningMessage("No previous test execution found");
       return;
@@ -1392,8 +1429,25 @@ export class TestRunner {
     const { suitePath, stepName, stepId, config, userInputs } =
       this.lastExecutionState;
 
+    const rawFormatOverrides = options?.reportFormats;
+    const sanitizedFormats = Array.isArray(rawFormatOverrides)
+      ? rawFormatOverrides
+          .map((format) => format.trim().toLowerCase())
+          .filter((format) => format.length > 0)
+      : [];
+    const hasFormatOverride = sanitizedFormats.length > 0;
+    const displayFormats = sanitizedFormats.map((format) =>
+      format.toUpperCase()
+    );
+    const customDescription = options?.description?.trim();
+    const headerMessage = customDescription
+      ? `🔄 ${customDescription}`
+      : hasFormatOverride
+      ? `🔄 Retesting with report formats: ${displayFormats.join(", ")}`
+      : "🔄 Retesting with previous configuration";
+
     this.outputChannel.show();
-    this.outputChannel.appendLine("🔄 Retesting with previous configuration");
+    this.outputChannel.appendLine(headerMessage);
     this.outputChannel.appendLine(`📦 Suite: ${path.basename(suitePath)}`);
     if (stepName) {
       this.outputChannel.appendLine(`🎯 Step: ${stepName}`);
@@ -1405,6 +1459,11 @@ export class TestRunner {
     this.outputChannel.appendLine(
       `📄 Config file: ${config.configFile || "default settings"}`
     );
+    if (hasFormatOverride) {
+      this.outputChannel.appendLine(
+        `🧾 Report formats override: ${displayFormats.join(", ")}`
+      );
+    }
     this.outputChannel.appendLine(
       `⏰ Original execution: ${new Date(
         this.lastExecutionState.timestamp
@@ -1418,18 +1477,53 @@ export class TestRunner {
     this.outputChannel.appendLine("=".repeat(50));
 
     try {
-      if (stepName) {
-        if (!stepId) {
+      if (hasFormatOverride) {
+        if (stepName && !stepId) {
           vscode.window.showWarningMessage(
             "Não foi possível repetir a execução do step porque o step_id não está disponível."
           );
           return;
         }
-        await this.runStep(suitePath, stepName, stepId, {
-          useCachedInputs: true,
-        });
+
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+          vscode.Uri.file(suitePath)
+        );
+        const workingDirectory =
+          config.workingDirectory ??
+          workspaceFolder?.uri.fsPath ??
+          path.dirname(suitePath);
+        const relativePath = path.relative(workingDirectory, suitePath);
+        const overrideConfig: FlowTestConfig = {
+          ...config,
+          reporting: {
+            ...(config.reporting ?? {}),
+            formats: sanitizedFormats,
+          },
+        };
+
+        await this.executeTest(
+          suitePath,
+          workingDirectory,
+          relativePath,
+          stepName,
+          stepId,
+          overrideConfig,
+          { useCachedInputs: true }
+        );
       } else {
-        await this.runSuite(suitePath, { useCachedInputs: true });
+        if (stepName) {
+          if (!stepId) {
+            vscode.window.showWarningMessage(
+              "Não foi possível repetir a execução do step porque o step_id não está disponível."
+            );
+            return;
+          }
+          await this.runStep(suitePath, stepName, stepId, {
+            useCachedInputs: true,
+          });
+        } else {
+          await this.runSuite(suitePath, { useCachedInputs: true });
+        }
       }
     } catch (error) {
       const errorMessage =
