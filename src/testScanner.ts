@@ -369,6 +369,7 @@ export class TestScanner {
         base_url: parsed.base_url,
         auth: parsed.auth,
         steps: parsed.steps || [],
+        raw: parsed,
       };
 
       this.suiteCache.set(normalizedPath, {

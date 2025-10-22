@@ -89,11 +89,6 @@
         "icon": "$(preview)"
       },
       {
-        "command": "flow-test-runner.generateGraph",
-        "title": "Generate Discovery Graph",
-        "icon": "$(graph)"
-      },
-      {
         "command": "flow-test-runner.openTest",
         "title": "Open Test File",
         "icon": "$(go-to-file)"
@@ -182,6 +177,11 @@
         "command": "flow-test-runner.runSuiteWithJsonOutput",
         "title": "Run Suite with JSON Output",
         "icon": "$(json)"
+      },
+      {
+        "command": "flow-test-runner.updateInterfaces",
+        "title": "Synchronize Flow Test Interfaces",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
@@ -200,11 +200,6 @@
           "command": "flow-test-runner.generateQaReport",
           "when": "view == flowTestExplorer",
           "group": "navigation@2.6"
-        },
-        {
-          "command": "flow-test-runner.generateGraph",
-          "when": "view == flowTestExplorer",
-          "group": "navigation@3"
         },
         {
           "command": "flow-test-runner.viewLatestResults",
@@ -305,10 +300,6 @@
           "when": "workspaceHasFlowTests"
         },
         {
-          "command": "flow-test-runner.generateGraph",
-          "when": "workspaceHasFlowTests"
-        },
-        {
           "command": "flow-test-runner.filterTests",
           "when": "workspaceHasFlowTests"
         },
@@ -367,6 +358,10 @@
         {
           "command": "flow-test-runner.runSuiteWithJsonOutput",
           "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.updateInterfaces",
+          "when": "workspaceHasFlowTests"
         }
       ]
     },
@@ -421,31 +416,21 @@
           "minimum": 0,
           "description": "Number of retries for failed tests"
         },
-        "flowTestRunner.graphCommand": {
+        "flowTestRunner.interfaceUpdateCommand": {
           "type": "string",
-          "default": "flow-test-engine",
-          "description": "Command used to generate Flow Test discovery graphs"
+          "default": "${command} schema --format=json",
+          "markdownDescription": "Comando utilizado para gerar as interfaces atualizadas do Flow Test Engine. O placeholder `${command}` é substituído pelo valor configurado em `flowTestRunner.command`."
         },
-        "flowTestRunner.graphDirection": {
+        "flowTestRunner.interfaceUpdateOutputFile": {
           "type": "string",
-          "enum": [
-            "TD",
-            "LR",
-            "BT",
-            "RL"
-          ],
-          "default": "TD",
-          "description": "Default direction for generated Mermaid discovery graphs"
+          "default": "flow-test-engine.schema.json",
+          "description": "Nome do arquivo salvo no armazenamento da extensão com o resultado da atualização das interfaces do Flow Test Engine."
         },
-        "flowTestRunner.graphOutput": {
-          "type": "string",
-          "default": "flow-discovery.mmd",
-          "description": "Default output path (relative or absolute) for generated discovery graphs"
-        },
-        "flowTestRunner.graphNoOrphans": {
-          "type": "boolean",
-          "default": false,
-          "description": "Hide orphan nodes when generating discovery graphs"
+        "flowTestRunner.interfaceUpdateIntervalHours": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "description": "Intervalo, em horas, para verificar automaticamente se há novas versões do Flow Test Engine."
         }
       }
     }

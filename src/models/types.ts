@@ -9,6 +9,7 @@ export interface FlowTestSuite {
     token?: string;
   };
   steps: FlowTestStep[];
+  raw?: any;
 }
 
 export interface FlowTestCallConfig {
@@ -33,15 +34,6 @@ export interface FlowTestStep {
     body?: Record<string, any>;
   };
   input?: any;
-}
-
-export type FlowTestGraphDirection = "TD" | "LR" | "BT" | "RL";
-
-export interface FlowTestGraphConfig {
-  command?: string;
-  defaultDirection?: FlowTestGraphDirection;
-  defaultOutput?: string;
-  noOrphans?: boolean;
 }
 
 export interface TestResult {
@@ -73,7 +65,6 @@ export interface FlowTestConfig {
     exclude?: string[];
   };
   interactiveInputs?: boolean;
-  graph?: FlowTestGraphConfig;
   reporting?: {
     outputDir?: string;
     formats?: string[];

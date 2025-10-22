@@ -6,11 +6,16 @@ import { TestScanner } from "./testScanner";
 import { TestRunner } from "./testRunner";
 import { ConfigService } from "./services/configService";
 import { HtmlResultsService } from "./services/htmlResultsService";
-import { GraphService, GraphGenerationResult } from "./services/graphService";
 import { ImportExportService } from "./services/importExportService";
-import { FlowTestConfig, FlowTestGraphDirection } from "./models/types";
+import { FlowTestConfig } from "./models/types";
 import { TestMakerPanel } from "./ui/TestMakerPanel";
 import { QaReportService } from "./services/qaReportService";
+import { FlowTestIndex } from "./services/flowTestIndex";
+import { FlowTestLanguageService } from "./services/flowTestLanguageService";
+import { FlowTestCompletionProvider } from "./providers/flowTestCompletionProvider";
+import { FlowTestHoverProvider } from "./providers/flowTestHoverProvider";
+import { FlowTestCodeActionProvider } from "./providers/flowTestCodeActionProvider";
+import { FlowTestEngineUpdateService } from "./services/flowTestEngineUpdateService";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -18,9 +23,11 @@ export function activate(context: vscode.ExtensionContext) {
   const testProvider = new FlowTestProvider(testScanner, testRunner);
   const configService = ConfigService.getInstance();
   const htmlResultsService = HtmlResultsService.getInstance();
-  const graphService = GraphService.getInstance();
   const importExportService = ImportExportService.getInstance();
   const qaReportService = QaReportService.getInstance();
+  const flowTestIndex = new FlowTestIndex(testScanner);
+  const languageService = new FlowTestLanguageService(flowTestIndex);
+  const engineUpdateService = new FlowTestEngineUpdateService(context);
 
   // Injetar TestRunner no HtmlResultsService para funcionalidade de rerun
   htmlResultsService.setTestRunner(testRunner);
@@ -147,13 +154,6 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand(
-      "flow-test-runner.generateGraph",
-      async () => {
-        await handleGenerateGraph(graphService, configService);
-      }
-    ),
-
-    vscode.commands.registerCommand(
       "flow-test-runner.createConfig",
       async () => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -258,6 +258,34 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
     ),
+
+    vscode.commands.registerCommand(
+      "flow-test-runner.updateInterfaces",
+      async () => {
+        const workspaceFolder = await selectWorkspaceFolder();
+        if (!workspaceFolder) {
+          vscode.window.showErrorMessage("No workspace folder found");
+          return;
+        }
+        const config = vscode.workspace.getConfiguration(
+          "flowTestRunner",
+          workspaceFolder.uri
+        );
+        const command = config.get<string>("command", "flow-test-engine");
+        try {
+          await engineUpdateService.updateInterfaces(
+            command,
+            workspaceFolder.uri.fsPath
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          vscode.window.showErrorMessage(
+            `Falha ao atualizar interfaces do Flow Test Engine: ${message}`
+          );
+        }
+      }
+    ),
   ];
 
   context.subscriptions.push(
@@ -266,167 +294,43 @@ export function activate(context: vscode.ExtensionContext) {
     testRunner,
     htmlResultsService,
     importExportService,
-    qaReportService
+    qaReportService,
+    flowTestIndex,
+    engineUpdateService,
+    vscode.languages.registerCompletionItemProvider(
+      [
+        { language: "yaml", scheme: "file", pattern: "**/*.yml" },
+        { language: "yaml", scheme: "file", pattern: "**/*.yaml" },
+      ],
+      new FlowTestCompletionProvider(languageService),
+      " ",
+      ":",
+      '"',
+      "'",
+      "-"
+    ),
+    vscode.languages.registerHoverProvider(
+      [
+        { language: "yaml", scheme: "file", pattern: "**/*.yml" },
+        { language: "yaml", scheme: "file", pattern: "**/*.yaml" },
+      ],
+      new FlowTestHoverProvider(languageService)
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      [
+        { language: "yaml", scheme: "file", pattern: "**/*.yml" },
+        { language: "yaml", scheme: "file", pattern: "**/*.yaml" },
+      ],
+      new FlowTestCodeActionProvider(languageService),
+      {
+        providedCodeActionKinds:
+          FlowTestCodeActionProvider.providedCodeActionKinds,
+      }
+    )
   );
 
   checkForFlowTests(configService);
-}
-
-export async function handleGenerateGraph(
-  graphService: GraphService,
-  configService: ConfigService
-): Promise<void> {
-  const workspaceFolder = await selectWorkspaceFolder();
-  if (!workspaceFolder) {
-    vscode.window.showErrorMessage("No workspace folder found");
-    return;
-  }
-
-  const workspacePath = workspaceFolder.uri.fsPath;
-
-  let config: FlowTestConfig;
-  try {
-    config = await configService.getConfig(workspacePath);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    vscode.window.showErrorMessage(
-      `Failed to load Flow Test configuration: ${message}`
-    );
-    return;
-  }
-
-  const graphConfig = config.graph ?? {};
-  const defaultOutputPath = resolveDefaultGraphOutputPath(
-    workspacePath,
-    config
-  );
-
-  const targetUri = await vscode.window.showSaveDialog({
-    title: "Save Flow Test discovery graph",
-    saveLabel: "Generate Graph",
-    defaultUri: vscode.Uri.file(defaultOutputPath),
-    filters: {
-      Mermaid: ["mmd", "mermaid"],
-      Text: ["txt"],
-    },
-  });
-
-  if (!targetUri) {
-    return;
-  }
-
-  const direction = await promptGraphDirection(graphConfig.defaultDirection);
-  if (direction === null) {
-    return;
-  }
-
-  const noOrphans = await promptNoOrphans(graphConfig.noOrphans);
-  if (noOrphans === null) {
-    return;
-  }
-
-  const priority = await promptCommaSeparatedList(
-    "Prioritize nodes",
-    "Enter comma-separated priority nodes (optional)"
-  );
-  if (priority === null) {
-    return;
-  }
-
-  const suites = await promptCommaSeparatedList(
-    "Filter suites",
-    "Enter comma-separated suite names to include (optional)"
-  );
-  if (suites === null) {
-    return;
-  }
-
-  const nodes = await promptCommaSeparatedList(
-    "Filter nodes",
-    "Enter comma-separated node identifiers (optional)"
-  );
-  if (nodes === null) {
-    return;
-  }
-
-  const tags = await promptCommaSeparatedList(
-    "Filter tags",
-    "Enter comma-separated tags to include (optional)"
-  );
-  if (tags === null) {
-    return;
-  }
-
-  const titleInput = await vscode.window.showInputBox({
-    title: "Graph title",
-    prompt: "Provide a custom graph title (optional)",
-    placeHolder: "Flow Test Discovery",
-    ignoreFocusOut: true,
-  });
-
-  if (titleInput === undefined) {
-    return;
-  }
-
-  const title = titleInput.trim().length > 0 ? titleInput.trim() : undefined;
-
-  const options = {
-    workspacePath,
-    outputPath: targetUri.fsPath,
-    direction: direction ?? undefined,
-    noOrphans: noOrphans ?? undefined,
-    priority: priority.length > 0 ? priority : undefined,
-    suites: suites.length > 0 ? suites : undefined,
-    nodes: nodes.length > 0 ? nodes : undefined,
-    tags: tags.length > 0 ? tags : undefined,
-    title,
-  } satisfies Parameters<typeof graphService.generateMermaidGraph>[0];
-
-  try {
-    const result = await vscode.window.withProgress<GraphGenerationResult>(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: "Generating Flow Test discovery graph...",
-      },
-      async () => {
-        return graphService.generateMermaidGraph(options);
-      }
-    );
-
-    const relativeOutput = path.relative(workspacePath, result.outputPath);
-    const outputDisplay =
-      relativeOutput && !relativeOutput.startsWith("..")
-        ? relativeOutput
-        : result.outputPath;
-
-    const openOption = "Open";
-    const revealOption = "Reveal";
-
-    const action = await vscode.window.showInformationMessage(
-      `Flow Test graph saved to ${outputDisplay}`,
-      openOption,
-      revealOption
-    );
-
-    if (action === openOption) {
-      const document = await vscode.workspace.openTextDocument(
-        vscode.Uri.file(result.outputPath)
-      );
-      await vscode.window.showTextDocument(document, {
-        preview: false,
-      });
-    } else if (action === revealOption) {
-      await vscode.commands.executeCommand(
-        "revealFileInOS",
-        vscode.Uri.file(result.outputPath)
-      );
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    vscode.window.showErrorMessage(
-      `Failed to generate Flow Test graph: ${message}`
-    );
-  }
+  void engineUpdateService.checkForUpdates();
 }
 
 async function selectWorkspaceFolder(): Promise<
@@ -448,153 +352,12 @@ async function selectWorkspaceFolder(): Promise<
   }));
 
   const pick = await vscode.window.showQuickPick(pickItems, {
-    title: "Select workspace for Flow Test graph",
+    title: "Select workspace",
     placeHolder: "Workspace folder",
     ignoreFocusOut: true,
   });
 
   return pick?.folder;
-}
-
-function resolveDefaultGraphOutputPath(
-  workspacePath: string,
-  config: FlowTestConfig
-): string {
-  const graphConfig = config.graph ?? {};
-  const baseDir = config.workingDirectory ?? workspacePath;
-  const defaultOutput =
-    graphConfig.defaultOutput?.trim() || "flow-discovery.mmd";
-
-  if (path.isAbsolute(defaultOutput)) {
-    return defaultOutput;
-  }
-
-  return path.join(baseDir, defaultOutput);
-}
-
-async function promptGraphDirection(
-  defaultDirection?: FlowTestGraphDirection
-): Promise<FlowTestGraphDirection | undefined | null> {
-  const directionItems: Array<
-    vscode.QuickPickItem & { value?: FlowTestGraphDirection }
-  > = [
-    {
-      label: defaultDirection
-        ? `Default (${describeDirection(defaultDirection)})`
-        : "Use configuration default",
-      description: "Use direction from configuration",
-    },
-    {
-      label: "Top to bottom",
-      description: "Mermaid TD",
-      value: "TD",
-    },
-    {
-      label: "Left to right",
-      description: "Mermaid LR",
-      value: "LR",
-    },
-    {
-      label: "Bottom to top",
-      description: "Mermaid BT",
-      value: "BT",
-    },
-    {
-      label: "Right to left",
-      description: "Mermaid RL",
-      value: "RL",
-    },
-  ];
-
-  const selection = await vscode.window.showQuickPick(directionItems, {
-    title: "Graph direction",
-    placeHolder: "Choose graph layout direction",
-    ignoreFocusOut: true,
-  });
-
-  if (!selection) {
-    return null;
-  }
-
-  return selection.value;
-}
-
-async function promptNoOrphans(
-  defaultValue?: boolean
-): Promise<boolean | undefined | null> {
-  const items: Array<vscode.QuickPickItem & { value?: boolean }> = [
-    {
-      label:
-        defaultValue === true
-          ? "Default (Yes)"
-          : defaultValue === false
-          ? "Default (No)"
-          : "Use configuration default",
-      description: "Use configuration option",
-    },
-    {
-      label: "Yes",
-      description: "Exclude orphan nodes",
-      value: true,
-    },
-    {
-      label: "No",
-      description: "Include orphan nodes",
-      value: false,
-    },
-  ];
-
-  const selection = await vscode.window.showQuickPick(items, {
-    title: "Exclude orphan nodes?",
-    placeHolder: "Choose whether to hide orphan nodes",
-    ignoreFocusOut: true,
-  });
-
-  if (!selection) {
-    return null;
-  }
-
-  return selection.value;
-}
-
-async function promptCommaSeparatedList(
-  title: string,
-  prompt: string
-): Promise<string[] | null> {
-  const input = await vscode.window.showInputBox({
-    title,
-    prompt,
-    placeHolder: "value-a, value-b",
-    ignoreFocusOut: true,
-  });
-
-  if (input === undefined) {
-    return null;
-  }
-
-  return parseCommaSeparatedList(input);
-}
-
-function parseCommaSeparatedList(value: string): string[] {
-  return value
-    .split(/[,;]/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-}
-
-function describeDirection(direction: FlowTestGraphDirection): string {
-  switch (direction) {
-    case "TD":
-      return "Top to bottom";
-    case "LR":
-      return "Left to right";
-    case "BT":
-      return "Bottom to top";
-    case "RL":
-      return "Right to left";
-    default:
-      return direction;
-  }
 }
 
 async function checkForFlowTests(configService: ConfigService) {
