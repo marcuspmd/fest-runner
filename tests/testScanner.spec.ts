@@ -57,6 +57,7 @@ describe("TestScanner", () => {
       suiteFile,
       [
         "suite_name: Call Suite",
+        "node_id: call-suite",
         "steps:",
         "  - name: Call Step",
         "    call:",

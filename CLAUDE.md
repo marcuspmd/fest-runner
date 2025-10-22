@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Flow Test Runner** is a VS Code extension that executes and manages Flow Test Engine tests directly within the editor. It provides a tree view explorer for discovering and running YAML-based test suites with interactive input support, result visualization, and Mermaid graph generation.
+**Flow Test Runner** is a VS Code extension that executes and manages Flow Test Engine tests directly within the editor. It provides a tree view explorer for discovering and running YAML-based test suites with interactive input support and result visualization.
 
 ## Development Commands
 
@@ -28,9 +28,9 @@ Press `F5` in VS Code to launch Extension Development Host with the extension lo
 
 **Extension Entry Point** (`src/extension.ts`)
 - Activates on workspace containing `.yml`/`.yaml` files
-- Registers all commands and the tree data provider
-- Sets up singleton services (ConfigService, HtmlResultsService, GraphService)
-- Handles graph generation workflow with user prompts
+- Registers commands, language features, and the tree data provider
+- Sets up singleton services (ConfigService, HtmlResultsService, FlowTestIndex, FlowTestEngineUpdateService)
+- Performs initial discovery to enable/disable UI surface
 
 **Test Provider** (`src/testProvider.ts`)
 - TreeDataProvider implementation for the Flow Test Explorer view
@@ -69,10 +69,10 @@ Press `F5` in VS Code to launch Extension Development Host with the extension lo
 - Discovers and displays HTML test results in WebView panels
 - Locates result files based on config reporting.outputDir
 
-**GraphService** (`src/services/graphService.ts`)
-- Generates Mermaid discovery graphs using `flow-test-engine graph` CLI
-- Supports filtering by suites, nodes, tags
-- Configurable direction (TD/LR/BT/RL) and orphan node handling
+**FlowTestIndex** (`src/services/flowTestIndex.ts`) & **FlowTestLanguageService** (`src/services/flowTestLanguageService.ts`)
+- Cache parsed suite metadata for completions, hovers, and quick fixes
+- Provide YAML-aware assistance (identifiers, scenarios, variables)
+- Surface automatic fixes for missing `suite_name` / `node_id`
 
 ### Type System
 
@@ -108,10 +108,6 @@ discovery:
   exclude:
     - "**/node_modules/**"
     - "**/results/**"
-graph:
-  defaultDirection: TD
-  defaultOutput: flow-discovery.mmd
-  noOrphans: false
 reporting:
   outputDir: results
   html:
@@ -125,7 +121,7 @@ reporting:
 Tests use Vitest with a VS Code API mock (`tests/mocks/vscode.ts`). The test suite covers:
 - TestProvider tree structure and filtering
 - TestScanner file discovery and caching
-- Graph generation command workflows
+- Configuration and service integrations (HTML results, update service)
 
 Run tests with `npm test` or `npm run test:watch` for TDD workflow.
 

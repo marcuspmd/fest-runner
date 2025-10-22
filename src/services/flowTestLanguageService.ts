@@ -50,7 +50,7 @@ const ROOT_KEY_SUGGESTIONS: DocumentationEntry[] = [
   {
     title: "node_id",
     description:
-      "Identificador único (kebab-case). É usado como referência entre suites e no discovery graph.",
+      "Identificador único (kebab-case). É usado como referência entre suites e relatórios.",
   },
   {
     title: "base_url",
