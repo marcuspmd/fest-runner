@@ -13,6 +13,7 @@ import {
 import * as yaml from "yaml";
 import { ConfigService } from "./services/configService";
 import { InputService } from "./services/inputService";
+import { HtmlResultsService } from "./services/htmlResultsService";
 import { quoteArgsForShell } from "./utils/commandLine";
 
 interface NormalizedInputOption {
@@ -85,6 +86,7 @@ export class TestRunner {
   private outputChannel: vscode.OutputChannel;
   private configService: ConfigService;
   private inputService: InputService;
+  private htmlResultsService: HtmlResultsService;
   private lastExecutionState: TestExecutionState | null = null;
 
   private _onTestResult: vscode.EventEmitter<TestResult> =
@@ -104,6 +106,7 @@ export class TestRunner {
     this.outputChannel = vscode.window.createOutputChannel("Flow Test Runner");
     this.configService = ConfigService.getInstance();
     this.inputService = InputService.getInstance();
+    this.htmlResultsService = HtmlResultsService.getInstance();
   }
 
   private shouldUseInteractiveInputs(config: FlowTestConfig): boolean {
@@ -175,6 +178,7 @@ export class TestRunner {
       cwd,
       config,
       processKey: `${cwd}-all-suites`,
+      workspacePath,
       fallbackSuiteName: undefined,
       successMessage: "✅ All Flow Tests completed successfully",
       failureMessage: "❌ Flow Test execution failed",
@@ -246,17 +250,17 @@ export class TestRunner {
     config?: FlowTestConfig,
     runOptions?: TestRunOptions
   ): Promise<void> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(suitePath)
+    );
+    const workspacePath = workspaceFolder?.uri.fsPath;
+
     let finalConfig: FlowTestConfig;
     if (!config) {
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-        vscode.Uri.file(suitePath)
-      );
-      if (!workspaceFolder) {
+      if (!workspacePath) {
         throw new Error("No workspace folder found");
       }
-      finalConfig = await this.configService.getConfig(
-        workspaceFolder.uri.fsPath
-      );
+      finalConfig = await this.configService.getConfig(workspacePath);
     } else {
       finalConfig = config;
     }
@@ -322,6 +326,7 @@ export class TestRunner {
       stepName,
       stepId,
       suitePath,
+      workspacePath,
       preparedInputs,
       useInteractiveInputs,
       useCachedInputs,
@@ -340,6 +345,7 @@ export class TestRunner {
     stepName?: string;
     stepId?: string;
     suitePath?: string;
+    workspacePath?: string;
     preparedInputs?: {
       submissions: string[];
       userInputs: Record<string, string>;
@@ -359,6 +365,7 @@ export class TestRunner {
       stepName,
       stepId,
       suitePath,
+      workspacePath,
       preparedInputs = { submissions: [], userInputs: {} },
       useInteractiveInputs = false,
       useCachedInputs = false,
@@ -530,6 +537,20 @@ export class TestRunner {
           hadFailures,
           aggregatedResult
         );
+
+        if (workspacePath && shouldEnableHtmlOutput) {
+          try {
+            await this.htmlResultsService.showResults(
+              workspacePath,
+              suiteLabel
+            );
+          } catch (error) {
+            console.warn(
+              "Failed to automatically display Flow Test HTML results:",
+              error
+            );
+          }
+        }
 
         if (
           interactiveContext &&

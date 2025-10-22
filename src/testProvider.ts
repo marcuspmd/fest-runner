@@ -726,6 +726,9 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
 
     this.generateNameKeys(suite.name).forEach((key) => keys.add(key));
     this.generateNameKeys(suite.suite_name).forEach((key) => keys.add(key));
+    if (suite.node_id) {
+      this.generateNameKeys(suite.node_id).forEach((key) => keys.add(key));
+    }
 
     return Array.from(keys);
   }
@@ -893,6 +896,7 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
     const suiteValues = [
       suite.suite_name,
       suite.name,
+      suite.node_id,
       path.basename(suite.filePath),
       suite.filePath,
     ];

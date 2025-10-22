@@ -2,6 +2,7 @@ export interface FlowTestSuite {
   name: string;
   filePath: string;
   suite_name: string;
+  node_id?: string;
   base_url?: string;
   auth?: {
     type: string;
