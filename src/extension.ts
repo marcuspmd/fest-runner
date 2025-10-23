@@ -16,6 +16,7 @@ import { FlowTestCompletionProvider } from "./providers/flowTestCompletionProvid
 import { FlowTestHoverProvider } from "./providers/flowTestHoverProvider";
 import { FlowTestCodeActionProvider } from "./providers/flowTestCodeActionProvider";
 import { FlowTestEngineUpdateService } from "./services/flowTestEngineUpdateService";
+import { FlowTestSchemaService } from "./services/flowTestSchemaService";
 
 export function activate(context: vscode.ExtensionContext) {
   const testScanner = new TestScanner();
@@ -25,9 +26,13 @@ export function activate(context: vscode.ExtensionContext) {
   const htmlResultsService = HtmlResultsService.getInstance();
   const importExportService = ImportExportService.getInstance();
   const qaReportService = QaReportService.getInstance();
-  const flowTestIndex = new FlowTestIndex(testScanner);
-  const languageService = new FlowTestLanguageService(flowTestIndex);
   const engineUpdateService = new FlowTestEngineUpdateService(context);
+  const flowTestIndex = new FlowTestIndex(testScanner);
+  const schemaService = new FlowTestSchemaService(engineUpdateService);
+  const languageService = new FlowTestLanguageService(
+    flowTestIndex,
+    schemaService
+  );
 
   // Injetar TestRunner no HtmlResultsService para funcionalidade de rerun
   htmlResultsService.setTestRunner(testRunner);
@@ -288,6 +293,11 @@ export function activate(context: vscode.ExtensionContext) {
     ),
   ];
 
+  void (async () => {
+    await ensureEngineSchema(configService, engineUpdateService);
+    await schemaService.initialize();
+  })();
+
   context.subscriptions.push(
     ...commands,
     testScanner,
@@ -297,6 +307,7 @@ export function activate(context: vscode.ExtensionContext) {
     qaReportService,
     flowTestIndex,
     engineUpdateService,
+    schemaService,
     vscode.languages.registerCompletionItemProvider(
       [
         { language: "yaml", scheme: "file", pattern: "**/*.yml" },
@@ -367,6 +378,32 @@ async function checkForFlowTests(configService: ConfigService) {
     "workspaceHasFlowTests",
     hasFlowTests
   );
+}
+
+async function ensureEngineSchema(
+  configService: ConfigService,
+  engineUpdateService: FlowTestEngineUpdateService
+): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    return;
+  }
+
+  for (const folder of folders) {
+    try {
+      const config = await configService.getConfig(folder.uri.fsPath);
+      const command = config.command ?? "flow-test-engine";
+      await engineUpdateService.ensureLatestSchema(command, folder.uri.fsPath, {
+        silent: true,
+        versionHint: undefined,
+      });
+    } catch (error) {
+      console.warn(
+        `Failed to synchronize Flow Test Engine schema for ${folder.uri.fsPath}:`,
+        error
+      );
+    }
+  }
 }
 
 async function hasFlowTestFiles(

@@ -656,6 +656,25 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       suite = this.findSuiteMetadataByKey(result.suite, result.filePath);
     }
 
+    if (!suite && result.suite) {
+      const item = this.findSuiteItemByLabel(result.suite);
+      if (item?.filePath) {
+        const normalizedPath = this.normalizePathKey(item.filePath);
+        suite = this.suiteMetadataByKey.get(normalizedPath);
+
+        if (!suite) {
+          suite = {
+            name: path.basename(item.filePath, path.extname(item.filePath)),
+            filePath: item.filePath,
+            suite_name: item.label,
+            steps: [],
+          } as FlowTestSuite;
+        }
+
+        this.registerSuiteMetadata(suite, item);
+      }
+    }
+
     if (!suite && result.filePath) {
       suite = {
         name: path.basename(result.filePath, path.extname(result.filePath)),
@@ -984,6 +1003,26 @@ export class FlowTestProvider implements vscode.TreeDataProvider<FlowTestItem> {
       const suite = this.suiteMetadataByKey.get(key);
       if (suite) {
         return suite;
+      }
+    }
+
+    return undefined;
+  }
+
+  private findSuiteItemByLabel(label: string): FlowTestItem | undefined {
+    const normalizedLabel = this.normalizeNameKey(label);
+    if (!normalizedLabel) {
+      return undefined;
+    }
+
+    for (const item of this.testItems.values()) {
+      if (item.type !== "suite" || !item.label || !item.filePath) {
+        continue;
+      }
+
+      const itemKey = this.normalizeNameKey(item.label);
+      if (itemKey && itemKey === normalizedLabel) {
+        return item;
       }
     }
 

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as https from "https";
+import * as fs from "fs";
 import { exec } from "child_process";
 
 interface VersionInfo {
@@ -12,14 +13,22 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
     "flowTestRunner.lastEngineUpdateCheck";
   private static readonly LAST_VERSION_KEY =
     "flowTestRunner.lastEngineVersion";
+  private static readonly LAST_NOTIFIED_LATEST_KEY =
+    "flowTestRunner.lastNotifiedEngineVersion";
 
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly onDidUpdateSchemaEmitter = new vscode.EventEmitter<void>();
   private checking = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   dispose(): void {
+    this.onDidUpdateSchemaEmitter.dispose();
     this.disposables.forEach((d) => d.dispose());
+  }
+
+  get onDidUpdateSchema(): vscode.Event<void> {
+    return this.onDidUpdateSchemaEmitter.event;
   }
 
   async checkForUpdates(force = false): Promise<void> {
@@ -34,26 +43,30 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
         return;
       }
 
+      const config = vscode.workspace.getConfiguration(
+        "flowTestRunner",
+        workspaceFolder.uri
+      );
+      const command = config.get<string>("command", "flow-test-engine");
+      const defaultIntervalHours = config.get<number>(
+        "interfaceUpdateIntervalHours",
+        6
+      );
+
+      await this.ensureLatestSchema(command, workspaceFolder.uri.fsPath, {
+        silent: true,
+      });
+
       const now = Date.now();
       const lastCheck =
         this.context.globalState.get<number>(
           FlowTestEngineUpdateService.LAST_CHECK_KEY
         ) ?? 0;
 
-      const defaultIntervalHours = vscode.workspace
-        .getConfiguration("flowTestRunner", workspaceFolder.uri)
-        .get<number>("interfaceUpdateIntervalHours", 6);
-
       const intervalMs = Math.max(defaultIntervalHours, 1) * 60 * 60 * 1000;
       if (!force && now - lastCheck < intervalMs) {
         return;
       }
-
-      const config = vscode.workspace.getConfiguration(
-        "flowTestRunner",
-        workspaceFolder.uri
-      );
-      const command = config.get<string>("command", "flow-test-engine");
       const versionInfo = await this.resolveVersions(
         command,
         workspaceFolder.uri.fsPath
@@ -69,11 +82,16 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
       );
 
       if (
-        this.compareSemver(versionInfo.latest, versionInfo.current) <= 0 ||
-        this.context.globalState.get<string>(
-          FlowTestEngineUpdateService.LAST_VERSION_KEY
-        ) === versionInfo.latest
+        this.compareSemver(versionInfo.latest, versionInfo.current) <= 0
       ) {
+        return;
+      }
+
+      const alreadyNotifiedLatest = this.context.globalState.get<string>(
+        FlowTestEngineUpdateService.LAST_NOTIFIED_LATEST_KEY
+      );
+
+      if (alreadyNotifiedLatest === versionInfo.latest) {
         return;
       }
 
@@ -92,6 +110,11 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
           versionInfo.latest
         );
       }
+
+      await this.context.globalState.update(
+        FlowTestEngineUpdateService.LAST_NOTIFIED_LATEST_KEY,
+        versionInfo.latest
+      );
     } catch (error) {
       console.warn("Failed to check Flow Test Engine updates:", error);
     } finally {
@@ -102,7 +125,8 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
   async updateInterfaces(
     command: string,
     workspacePath: string,
-    targetVersion?: string
+    targetVersion?: string,
+    options?: { silent?: boolean }
   ): Promise<void> {
     const config = vscode.workspace.getConfiguration(
       "flowTestRunner",
@@ -110,7 +134,7 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
     );
     const template = config.get<string>(
       "interfaceUpdateCommand",
-      "${command} schema --format=json"
+      "${command} schema --format json"
     );
     const outputFile = config.get<string>(
       "interfaceUpdateOutputFile",
@@ -129,15 +153,47 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
       );
     }
 
-    vscode.window.showInformationMessage(
-      "Interfaces do Flow Test Engine sincronizadas com sucesso."
-    );
+    if (!options?.silent) {
+      vscode.window.showInformationMessage(
+        "Interfaces do Flow Test Engine sincronizadas com sucesso."
+      );
+    }
+
+    this.onDidUpdateSchemaEmitter.fire();
   }
 
   getGeneratedInterfacePath(fileName?: string): vscode.Uri {
     const baseUri = vscode.Uri.joinPath(this.context.globalStorageUri, "engine");
     const target = fileName ?? "flow-test-engine.schema.json";
     return vscode.Uri.joinPath(baseUri, target);
+  }
+
+  async ensureLatestSchema(
+    command: string,
+    workspacePath: string,
+    options?: { versionHint?: string | null; silent?: boolean }
+  ): Promise<void> {
+    try {
+      const schemaUri = this.getGeneratedInterfacePath();
+      const exists = await this.fileExists(schemaUri);
+      let currentVersion = options?.versionHint ?? null;
+
+      if (!currentVersion) {
+        currentVersion = await this.getInstalledVersion(command, workspacePath);
+      }
+
+      const lastVersion = this.context.globalState.get<string>(
+        FlowTestEngineUpdateService.LAST_VERSION_KEY
+      );
+
+      if (!exists || (currentVersion && currentVersion !== lastVersion)) {
+        await this.updateInterfaces(command, workspacePath, currentVersion ?? undefined, {
+          silent: options?.silent ?? true,
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to ensure Flow Test Engine schema:", error);
+    }
   }
 
   private resolveTemplateCommand(template: string, command: string): string {
@@ -221,6 +277,15 @@ export class FlowTestEngineUpdateService implements vscode.Disposable {
       targetUri,
       Buffer.from(contents, "utf8")
     );
+  }
+
+  private async fileExists(target: vscode.Uri): Promise<boolean> {
+    try {
+      await fs.promises.access(target.fsPath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private compareSemver(a: string, b: string): number {

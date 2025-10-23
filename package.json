@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
@@ -418,7 +418,7 @@
         },
         "flowTestRunner.interfaceUpdateCommand": {
           "type": "string",
-          "default": "${command} schema --format=json",
+          "default": "${command} schema --format json",
           "markdownDescription": "Comando utilizado para gerar as interfaces atualizadas do Flow Test Engine. O placeholder `${command}` é substituído pelo valor configurado em `flowTestRunner.command`."
         },
         "flowTestRunner.interfaceUpdateOutputFile": {

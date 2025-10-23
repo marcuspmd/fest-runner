@@ -16,6 +16,11 @@ import {
   FlowTestIndex,
   FlowTestSuiteMetadata,
 } from "./flowTestIndex";
+import {
+  FlowTestSchemaService,
+  SchemaFieldInfo,
+  SchemaValueSuggestion,
+} from "./flowTestSchemaService";
 
 export interface FlowTestQuickFix {
   title: string;
@@ -175,7 +180,10 @@ const ASSERT_KEY_SUGGESTIONS: DocumentationEntry[] = [
 ];
 
 export class FlowTestLanguageService {
-  constructor(private readonly index: FlowTestIndex) {}
+  constructor(
+    private readonly index: FlowTestIndex,
+    private readonly schemaService: FlowTestSchemaService
+  ) {}
 
   async provideCompletions(
     document: vscode.TextDocument,
@@ -188,7 +196,9 @@ export class FlowTestLanguageService {
 
     const items: vscode.CompletionItem[] = [];
     if (context.isKey) {
-      return this.getKeyCompletions(context);
+      const schemaItems = this.getSchemaKeyCompletions(context);
+      const fallbackItems = this.getFallbackKeyCompletions(context);
+      return this.mergeCompletionItems(schemaItems, fallbackItems);
     }
 
     const { normalizedPath } = context;
@@ -226,7 +236,7 @@ export class FlowTestLanguageService {
         }
         suggestions.push(item);
       }
-      return suggestions;
+      return this.mergeWithSchemaValues(context, suggestions);
     }
 
     if (
@@ -241,7 +251,7 @@ export class FlowTestLanguageService {
         item.detail = "Node ID de Flow Test";
         items.push(item);
       });
-      return items;
+      return this.mergeWithSchemaValues(context, items);
     }
 
     if (
@@ -260,7 +270,7 @@ export class FlowTestLanguageService {
         item.detail = "Cenário disponível";
         items.push(item);
       });
-      return items;
+      return this.mergeWithSchemaValues(context, items);
     }
 
     if (
@@ -282,7 +292,7 @@ export class FlowTestLanguageService {
         item.detail = "Variável capturada/exportada";
         items.push(item);
       });
-      return items;
+      return this.mergeWithSchemaValues(context, items);
     }
 
     if (normalizedPath.startsWith("variables.")) {
@@ -301,7 +311,7 @@ export class FlowTestLanguageService {
         item.detail = "Variável conhecida";
         items.push(item);
       });
-      return items;
+      return this.mergeWithSchemaValues(context, items);
     }
 
     if (normalizedPath === "steps.*.call.step") {
@@ -316,7 +326,12 @@ export class FlowTestLanguageService {
           items.push(item);
         });
       }
-      return items;
+      return this.mergeWithSchemaValues(context, items);
+    }
+
+    const schemaValueItems = this.getSchemaValueCompletions(context);
+    if (schemaValueItems.length > 0) {
+      return this.mergeCompletionItems(items, schemaValueItems);
     }
 
     return items;
@@ -389,6 +404,26 @@ export class FlowTestLanguageService {
           const range = document.getWordRangeAtPosition(position, /[\w./-]+/);
           return new vscode.Hover(markdown, range);
         }
+      }
+    }
+
+    if (context.isKey) {
+      const schemaHover = this.getSchemaHoverForKey(
+        context,
+        document,
+        position
+      );
+      if (schemaHover) {
+        return schemaHover;
+      }
+    } else {
+      const schemaHover = this.getSchemaHoverForValue(
+        context,
+        document,
+        position
+      );
+      if (schemaHover) {
+        return schemaHover;
       }
     }
 
@@ -588,7 +623,9 @@ export class FlowTestLanguageService {
     };
   }
 
-  private getKeyCompletions(context: CompletionContext): vscode.CompletionItem[] {
+  private getFallbackKeyCompletions(
+    context: CompletionContext
+  ): vscode.CompletionItem[] {
     const normalizedParent = this.normalizePath(context.path);
 
     if (!normalizedParent) {
@@ -623,6 +660,269 @@ export class FlowTestLanguageService {
     }
 
     return [];
+  }
+
+  private getSchemaKeyCompletions(
+    context: CompletionContext
+  ): vscode.CompletionItem[] {
+    const fieldInfos = this.schemaService.getKeySuggestions(context.path);
+    if (fieldInfos.length === 0) {
+      return [];
+    }
+    return fieldInfos.map((info) => this.createSchemaFieldCompletion(info));
+  }
+
+  private getSchemaValueCompletions(
+    context: CompletionContext
+  ): vscode.CompletionItem[] {
+    const fieldInfo = this.schemaService.getFieldInfo(context.path);
+    const suggestions = this.schemaService.getValueSuggestions(context.path);
+
+    if (suggestions.length === 0 && !fieldInfo) {
+      return [];
+    }
+
+    const items: vscode.CompletionItem[] = [];
+    suggestions.forEach((suggestion) => {
+      items.push(this.createSchemaValueCompletion(suggestion, fieldInfo));
+    });
+
+    return items;
+  }
+
+  private mergeWithSchemaValues(
+    context: CompletionContext,
+    completions: vscode.CompletionItem[]
+  ): vscode.CompletionItem[] {
+    const schemaValues = this.getSchemaValueCompletions(context);
+    if (schemaValues.length === 0) {
+      return completions;
+    }
+    return this.mergeCompletionItems(completions, schemaValues);
+  }
+
+  private mergeCompletionItems(
+    primary: vscode.CompletionItem[],
+    secondary: vscode.CompletionItem[]
+  ): vscode.CompletionItem[] {
+    if (secondary.length === 0) {
+      return primary;
+    }
+
+    const ordered: vscode.CompletionItem[] = [];
+    const seen = new Set<string>();
+
+    const add = (item: vscode.CompletionItem) => {
+      const key = this.getCompletionLabelKey(item);
+      if (!key || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      ordered.push(item);
+    };
+
+    primary.forEach(add);
+    secondary.forEach(add);
+
+    return ordered;
+  }
+
+  private getCompletionLabelKey(item: vscode.CompletionItem): string {
+    const label = item.label;
+    if (typeof label === "string") {
+      return label.toLowerCase();
+    }
+    if (label && typeof label.label === "string") {
+      return label.label.toLowerCase();
+    }
+    return "";
+  }
+
+  private createSchemaFieldCompletion(
+    info: SchemaFieldInfo
+  ): vscode.CompletionItem {
+    const item = new vscode.CompletionItem(
+      info.name,
+      vscode.CompletionItemKind.Field
+    );
+    const detail = this.buildFieldDetail(info);
+    if (detail) {
+      item.detail = detail;
+    }
+    const markdown = this.createFieldMarkdown(info);
+    if (markdown) {
+      item.documentation = markdown;
+    }
+    return item;
+  }
+
+  private createSchemaValueCompletion(
+    suggestion: SchemaValueSuggestion,
+    fieldInfo?: SchemaFieldInfo
+  ): vscode.CompletionItem {
+    const item = new vscode.CompletionItem(suggestion.value);
+
+    switch (suggestion.origin) {
+      case "enum":
+        item.kind = vscode.CompletionItemKind.EnumMember;
+        break;
+      case "boolean":
+        item.kind = vscode.CompletionItemKind.Value;
+        item.sortText = `a_${suggestion.value}`;
+        break;
+      case "default":
+        item.kind = vscode.CompletionItemKind.Value;
+        item.sortText = `b_${suggestion.value}`;
+        break;
+      case "example":
+        item.kind = vscode.CompletionItemKind.Value;
+        item.sortText = `c_${suggestion.value}`;
+        break;
+      default:
+        item.kind = vscode.CompletionItemKind.Value;
+        break;
+    }
+
+    if (suggestion.description) {
+      item.detail = suggestion.description;
+    } else if (fieldInfo?.type) {
+      item.detail = fieldInfo.type;
+    }
+
+    const markdown = this.createFieldMarkdown(fieldInfo);
+    if (markdown) {
+      item.documentation = markdown;
+    }
+
+    return item;
+  }
+
+  private buildFieldDetail(info?: SchemaFieldInfo): string | undefined {
+    if (!info) {
+      return undefined;
+    }
+
+    const parts: string[] = [];
+    if (info.type) {
+      parts.push(info.type);
+    }
+    if (info.required === true) {
+      parts.push("obrigatório");
+    } else if (info.required === false) {
+      parts.push("opcional");
+    }
+
+    if (parts.length === 0) {
+      return undefined;
+    }
+
+    return parts.join(" · ");
+  }
+
+  private createFieldMarkdown(
+    info?: SchemaFieldInfo
+  ): vscode.MarkdownString | undefined {
+    if (!info) {
+      return undefined;
+    }
+
+    const lines: string[] = [];
+    lines.push(`**${info.name}**`);
+
+    if (info.type) {
+      lines.push("");
+      lines.push(`Tipo: \`${info.type}\``);
+    }
+
+    if (info.required !== undefined) {
+      lines.push("");
+      lines.push(
+        `Obrigatoriedade: ${info.required ? "Obrigatório" : "Opcional"}`
+      );
+    }
+
+    if (info.description) {
+      lines.push("");
+      lines.push(info.description);
+    }
+
+    if (info.enumValues && info.enumValues.length > 0) {
+      lines.push("");
+      lines.push("Valores permitidos:");
+      info.enumValues.forEach((entry) => {
+        const description = entry.description
+          ? ` — ${entry.description}`
+          : "";
+        lines.push(`- \`${entry.value}\`${description}`);
+      });
+    }
+
+    if (info.examples && info.examples.length > 0) {
+      lines.push("");
+      lines.push("Exemplos:");
+      info.examples.forEach((example) => {
+        lines.push(`- \`${example}\``);
+      });
+    }
+
+    if (info.defaultValue) {
+      lines.push("");
+      lines.push(`Valor padrão: \`${info.defaultValue}\``);
+    }
+
+    if (info.documentationUrl) {
+      lines.push("");
+      lines.push(`[Documentação](${info.documentationUrl})`);
+    }
+
+    const markdown = new vscode.MarkdownString(lines.join("\n"));
+    markdown.isTrusted = true;
+    return markdown;
+  }
+
+  private getSchemaHoverForKey(
+    context: CompletionContext,
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.Hover | undefined {
+    if (!context.currentKey) {
+      return undefined;
+    }
+
+    const info = this.schemaService.getFieldInfoForKey(
+      context.path,
+      context.currentKey
+    );
+    if (!info) {
+      return undefined;
+    }
+
+    const markdown = this.createFieldMarkdown(info);
+    if (!markdown) {
+      return undefined;
+    }
+
+    const range = document.getWordRangeAtPosition(position, /[\w._-]+/);
+    return new vscode.Hover(markdown, range);
+  }
+
+  private getSchemaHoverForValue(
+    context: CompletionContext,
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.Hover | undefined {
+    const info = this.schemaService.getFieldInfo(context.path);
+    if (!info) {
+      return undefined;
+    }
+
+    const markdown = this.createFieldMarkdown(info);
+    if (!markdown) {
+      return undefined;
+    }
+
+    const range = document.getWordRangeAtPosition(position, /[\w./-]+/);
+    return new vscode.Hover(markdown, range);
   }
 
   private rootKeyCompletions(): vscode.CompletionItem[] {

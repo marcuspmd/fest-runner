@@ -420,6 +420,9 @@ export class TestRunner {
       this.outputChannel.appendLine(
         `⚙️  Configuration: ${JSON.stringify(config, null, 2)}`
       );
+      this.outputChannel.appendLine(
+        `🎛️ Interactive inputs: ${useInteractiveInputs ? "enabled" : "disabled"}`
+      );
       this.outputChannel.appendLine("");
 
       const testProcess = spawn(config.command, preparedArgs, {
@@ -463,6 +466,7 @@ export class TestRunner {
       testProcess.stdout?.on("data", (data) => {
         const text = data.toString();
         if (interactiveController) {
+          this.outputChannel.appendLine(`[STDOUT] ${text}`);
           const forwarded = interactiveController.handleData(text);
           if (forwarded) {
             output += forwarded;
@@ -472,6 +476,7 @@ export class TestRunner {
           output += text;
           this.outputChannel.append(text);
         }
+        console.log("[STDOUT]", text);
       });
 
       testProcess.stderr?.on("data", (data) => {
@@ -935,6 +940,15 @@ export class TestRunner {
       return;
     }
 
+    try {
+      this.outputChannel.appendLine(
+        `[FLOW_INPUT] ${JSON.stringify(payload)}`
+      );
+      console.log("[FLOW_INPUT]", payload);
+    } catch {
+      // ignore serialization issues
+    }
+
     const stepKey = this.buildInteractiveStepKey(payload, context);
     const config = this.mapInteractivePayloadToConfig(payload, stepKey);
     const request: UserInputRequest = {
@@ -950,6 +964,10 @@ export class TestRunner {
       })),
       defaultValue: config.defaultValue,
     };
+
+    this.outputChannel.appendLine(
+      `🧩 Input required: ${request.inputName} (step: ${request.stepName})`
+    );
 
     let rawValue: string | undefined;
 
