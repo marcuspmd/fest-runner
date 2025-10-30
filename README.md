@@ -9,6 +9,8 @@ Uma extensão VS Code para executar e gerenciar testes do Flow Test Engine diret
 - **Execução de Testes**: Execute testes individuais ou suites completas
 - **Indicadores Visuais**: Ícones que mostram o status dos testes (pendente/executando/passou/falhou)
 - **Output Integrado**: Resultados dos testes exibidos no canal de output do VS Code
+- **Importação cURL**: Importa e executa comandos cURL diretamente, convertendo-os em testes Flow
+- **Importação/Exportação**: Suporte para Swagger/OpenAPI e Postman Collections
 
 ## Requisitos
 
@@ -76,6 +78,31 @@ test_directories:
 - `flow-test-runner.runSuite`: Executar suite completa
 - `flow-test-runner.runWithCache`: Executar usando valores em cache
 - `flow-test-runner.openTest`: Abrir arquivo de teste
+- `flow-test-runner.importCurl`: Importar/executar comando cURL
+- `flow-test-runner.importSwagger`: Importar Swagger/OpenAPI
+- `flow-test-runner.importPostman`: Importar Postman Collection
+- `flow-test-runner.exportPostman`: Exportar para Postman
+
+### Importação de cURL
+
+A extensão permite importar comandos cURL diretamente através de um botão de ação rápida no painel de testes:
+
+1. Clique no botão "Import/Execute cURL" (ícone de terminal) no painel Flow Tests
+2. Cole seu comando cURL (exemplo: `curl -X GET https://api.example.com/users`)
+3. Escolha entre:
+   - **Execute and Convert**: Executa o cURL e converte para teste Flow
+   - **Convert Only**: Apenas converte para teste Flow sem executar
+4. Opcionalmente salve como arquivo de teste YAML
+5. Visualize os resultados no painel de output
+
+Exemplo de uso:
+```bash
+curl -X POST https://api.example.com/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user","password":"pass"}'
+```
+
+Este comando será convertido em um teste Flow que você pode salvar e executar posteriormente.
 
 ## Desenvolvimento
 
