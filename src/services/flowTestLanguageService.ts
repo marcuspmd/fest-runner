@@ -622,6 +622,116 @@ export class FlowTestLanguageService {
       return this.mergeWithSchemaValues(context, items);
     }
 
+    // Provide value suggestions for request.method
+    if (
+      normalizedPath === "steps.*.request.method" ||
+      normalizedPath === "request.method"
+    ) {
+      const httpMethods = [
+        { value: "GET", description: "Recupera dados do servidor sem alterá-los" },
+        { value: "POST", description: "Cria um novo recurso no servidor" },
+        { value: "PUT", description: "Atualiza completamente um recurso existente" },
+        { value: "PATCH", description: "Atualiza parcialmente um recurso existente" },
+        { value: "DELETE", description: "Remove um recurso do servidor" },
+        { value: "HEAD", description: "Igual ao GET, mas retorna apenas os headers" },
+        { value: "OPTIONS", description: "Retorna os métodos HTTP suportados" },
+      ];
+      httpMethods.forEach(({ value, description }) => {
+        const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
+        item.detail = description;
+        item.sortText = `a_${value}`;
+        items.push(item);
+      });
+      return this.mergeWithSchemaValues(context, items);
+    }
+
+    // Provide value suggestions for input.type
+    if (
+      normalizedPath === "steps.*.input.type" ||
+      normalizedPath === "input.type"
+    ) {
+      const inputTypes = [
+        { value: "text", description: "Entrada de texto livre" },
+        { value: "number", description: "Entrada numérica (inteiro ou decimal)" },
+        { value: "select", description: "Seleção de uma opção de uma lista" },
+        { value: "boolean", description: "Verdadeiro ou falso (true/false)" },
+        { value: "password", description: "Entrada de texto oculta (para senhas)" },
+      ];
+      inputTypes.forEach(({ value, description }) => {
+        const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
+        item.detail = description;
+        item.sortText = `a_${value}`;
+        items.push(item);
+      });
+      return this.mergeWithSchemaValues(context, items);
+    }
+
+    // Provide value suggestions for call.on_error
+    if (
+      normalizedPath === "steps.*.call.on_error" ||
+      normalizedPath === "call.on_error"
+    ) {
+      const errorBehaviors = [
+        { value: "continue", description: "Continua a execução mesmo com erro" },
+        { value: "stop", description: "Para a execução imediatamente ao encontrar erro" },
+        { value: "retry", description: "Tenta executar novamente em caso de erro" },
+      ];
+      errorBehaviors.forEach(({ value, description }) => {
+        const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.EnumMember);
+        item.detail = description;
+        item.sortText = `a_${value}`;
+        items.push(item);
+      });
+      return this.mergeWithSchemaValues(context, items);
+    }
+
+    // Provide value suggestions for assert.status_code
+    if (
+      normalizedPath === "steps.*.assert.status_code" ||
+      normalizedPath === "assert.status_code"
+    ) {
+      const statusCodes = [
+        { value: "200", description: "OK - Requisição bem-sucedida" },
+        { value: "201", description: "Created - Recurso criado com sucesso" },
+        { value: "204", description: "No Content - Sucesso sem conteúdo de retorno" },
+        { value: "400", description: "Bad Request - Requisição malformada" },
+        { value: "401", description: "Unauthorized - Autenticação necessária" },
+        { value: "403", description: "Forbidden - Sem permissão de acesso" },
+        { value: "404", description: "Not Found - Recurso não encontrado" },
+        { value: "422", description: "Unprocessable Entity - Validação falhou" },
+        { value: "500", description: "Internal Server Error - Erro no servidor" },
+        { value: "502", description: "Bad Gateway - Gateway inválido" },
+        { value: "503", description: "Service Unavailable - Serviço indisponível" },
+      ];
+      statusCodes.forEach(({ value, description }) => {
+        const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
+        item.detail = description;
+        item.sortText = `a_${value}`;
+        items.push(item);
+      });
+      return this.mergeWithSchemaValues(context, items);
+    }
+
+    // Provide value suggestions for call.isolate_context and input.masked (boolean values)
+    if (
+      normalizedPath === "steps.*.call.isolate_context" ||
+      normalizedPath === "call.isolate_context" ||
+      normalizedPath === "steps.*.input.masked" ||
+      normalizedPath === "input.masked"
+    ) {
+      const boolValues = [
+        { value: "true", description: "Verdadeiro" },
+        { value: "false", description: "Falso" },
+      ];
+      boolValues.forEach(({ value, description }) => {
+        const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Value);
+        item.detail = description;
+        item.sortText = `a_${value}`;
+        items.push(item);
+      });
+      return this.mergeWithSchemaValues(context, items);
+    }
+
     const schemaValueItems = this.getSchemaValueCompletions(context);
     if (schemaValueItems.length > 0) {
       return this.mergeCompletionItems(items, schemaValueItems);
