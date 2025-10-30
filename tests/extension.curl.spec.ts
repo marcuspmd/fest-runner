@@ -1,14 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Mock } from "vitest";
 import path from "path";
-import { handleImportCurl } from "../src/extension";
 import type { ConfigService } from "../src/services/configService";
 import type { ImportExportService } from "../src/services/importExportService";
 import { workspace, window, Uri } from "vscode";
 import type { FlowTestConfig } from "../src/models/types";
-
-// We need to export handleImportCurl from extension.ts first
-// For now, let's test the ImportExportService directly
 
 describe("cURL Import", () => {
   const workspaceMock = workspace as typeof workspace & {
@@ -24,6 +20,7 @@ describe("cURL Import", () => {
   const workspacePath = path.join("/", "workspace");
 
   beforeEach(() => {
+    workspaceMock.workspaceFolders.length = 0;
     workspaceMock.workspaceFolders.push({
       uri: Uri.file(workspacePath),
       name: "workspace",
