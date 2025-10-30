@@ -2,7 +2,7 @@
   "name": "flow-test-runner",
   "displayName": "Flow Test Runner",
   "description": "Execute and manage Flow Test Engine tests directly from VS Code",
-  "version": "0.1.4",
+  "version": "0.1.8",
   "publisher": "marcuspmd",
   "repository": {
     "type": "git",
@@ -42,6 +42,12 @@
       ]
     },
     "commands": [
+      {
+        "command": "flow-test-runner.openTestMaker",
+        "title": "Open Test Maker",
+        "category": "Flow Test Runner",
+        "icon": "$(beaker)"
+      },
       {
         "command": "flow-test-runner.refresh",
         "title": "Refresh",
@@ -83,19 +89,24 @@
         "icon": "$(preview)"
       },
       {
-        "command": "flow-test-runner.generateGraph",
-        "title": "Generate Discovery Graph",
-        "icon": "$(graph)"
-      },
-      {
         "command": "flow-test-runner.openTest",
         "title": "Open Test File",
         "icon": "$(go-to-file)"
       },
       {
         "command": "flow-test-runner.retest",
-        "title": "Retest Last",
+        "title": "Flow Test Engine: Retest Last",
         "icon": "$(debug-restart)"
+      },
+      {
+        "command": "flow-test-runner.retestQa",
+        "title": "Flow Test Engine: Retest Last (QA Report)",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "flow-test-runner.generateQaReport",
+        "title": "Flow Test Engine: Generate QA HTML Report",
+        "icon": "$(report)"
       },
       {
         "command": "flow-test-runner.viewResults",
@@ -138,6 +149,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "flow-test-runner.importCurl",
+        "title": "Import/Execute cURL",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "flow-test-runner.exportPostman",
         "title": "Export to Postman",
         "icon": "$(cloud-upload)"
@@ -149,7 +165,7 @@
       },
       {
         "command": "flow-test-runner.rerunLast",
-        "title": "Flow Test Runner: Rerun Last Test",
+        "title": "Flow Test Engine: Retest Last",
         "icon": "$(debug-restart)"
       },
       {
@@ -161,6 +177,16 @@
         "command": "flow-test-runner.report",
         "title": "Flow Test Runner: View Test Report",
         "icon": "$(preview)"
+      },
+      {
+        "command": "flow-test-runner.runSuiteWithJsonOutput",
+        "title": "Run Suite with JSON Output",
+        "icon": "$(json)"
+      },
+      {
+        "command": "flow-test-runner.updateInterfaces",
+        "title": "Synchronize Flow Test Interfaces",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
@@ -176,14 +202,9 @@
           "group": "navigation@1"
         },
         {
-          "command": "flow-test-runner.retest",
+          "command": "flow-test-runner.generateQaReport",
           "when": "view == flowTestExplorer",
-          "group": "navigation@2"
-        },
-        {
-          "command": "flow-test-runner.generateGraph",
-          "when": "view == flowTestExplorer",
-          "group": "navigation@3"
+          "group": "navigation@2.6"
         },
         {
           "command": "flow-test-runner.viewLatestResults",
@@ -219,6 +240,11 @@
           "command": "flow-test-runner.importPostman",
           "when": "view == flowTestExplorer",
           "group": "secondary@4"
+        },
+        {
+          "command": "flow-test-runner.importCurl",
+          "when": "view == flowTestExplorer",
+          "group": "secondary@5"
         }
       ],
       "view/item/context": [
@@ -248,6 +274,11 @@
           "group": "inline@4"
         },
         {
+          "command": "flow-test-runner.runSuiteWithJsonOutput",
+          "when": "view == flowTestExplorer && viewItem == suite",
+          "group": "inline@5"
+        },
+        {
           "command": "flow-test-runner.exportPostman",
           "when": "view == flowTestExplorer && viewItem == suite",
           "group": "export@1"
@@ -256,6 +287,14 @@
       "commandPalette": [
         {
           "command": "flow-test-runner.retest",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.retestQa",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.generateQaReport",
           "when": "workspaceHasFlowTests"
         },
         {
@@ -268,10 +307,6 @@
         },
         {
           "command": "flow-test-runner.viewResults",
-          "when": "workspaceHasFlowTests"
-        },
-        {
-          "command": "flow-test-runner.generateGraph",
           "when": "workspaceHasFlowTests"
         },
         {
@@ -311,6 +346,10 @@
           "when": "workspaceHasFlowTests"
         },
         {
+          "command": "flow-test-runner.importCurl",
+          "when": "workspaceHasFlowTests"
+        },
+        {
           "command": "flow-test-runner.exportPostman",
           "when": "workspaceHasFlowTests"
         },
@@ -328,6 +367,14 @@
         },
         {
           "command": "flow-test-runner.report",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.runSuiteWithJsonOutput",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.updateInterfaces",
           "when": "workspaceHasFlowTests"
         }
       ]
@@ -354,6 +401,24 @@
           "default": "both",
           "description": "Output format for test results"
         },
+        "flowTestRunner.reportFormats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Optional list of Flow Test Engine report formats to request via --format (for example [\"json\", \"html\", \"qa\"]). When provided, overrides outputFormat."
+        },
+        "flowTestRunner.pdfBrowserExecutable": {
+          "type": "string",
+          "markdownDescription": "Absolute path for a local Chrome/Chromium (or Edge) executable used to render QA reports to PDF. Example: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.",
+          "description": "Path to the browser executable used for QA PDF generation."
+        },
+        "flowTestRunner.pdfOutputSubdir": {
+          "type": "string",
+          "description": "Optional folder (relative to the Flow Test reporting output directory or absolute) where QA PDF files should be written."
+        },
         "flowTestRunner.timeout": {
           "type": "number",
           "default": 30000,
@@ -365,31 +430,21 @@
           "minimum": 0,
           "description": "Number of retries for failed tests"
         },
-        "flowTestRunner.graphCommand": {
+        "flowTestRunner.interfaceUpdateCommand": {
           "type": "string",
-          "default": "flow-test-engine",
-          "description": "Command used to generate Flow Test discovery graphs"
+          "default": "${command} schema --format json",
+          "markdownDescription": "Comando utilizado para gerar as interfaces atualizadas do Flow Test Engine. O placeholder `${command}` é substituído pelo valor configurado em `flowTestRunner.command`."
         },
-        "flowTestRunner.graphDirection": {
+        "flowTestRunner.interfaceUpdateOutputFile": {
           "type": "string",
-          "enum": [
-            "TD",
-            "LR",
-            "BT",
-            "RL"
-          ],
-          "default": "TD",
-          "description": "Default direction for generated Mermaid discovery graphs"
+          "default": "flow-test-engine.schema.json",
+          "description": "Nome do arquivo salvo no armazenamento da extensão com o resultado da atualização das interfaces do Flow Test Engine."
         },
-        "flowTestRunner.graphOutput": {
-          "type": "string",
-          "default": "flow-discovery.mmd",
-          "description": "Default output path (relative or absolute) for generated discovery graphs"
-        },
-        "flowTestRunner.graphNoOrphans": {
-          "type": "boolean",
-          "default": false,
-          "description": "Hide orphan nodes when generating discovery graphs"
+        "flowTestRunner.interfaceUpdateIntervalHours": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "description": "Intervalo, em horas, para verificar automaticamente se há novas versões do Flow Test Engine."
         }
       }
     }
@@ -398,7 +453,9 @@
     "vscode:prepublish": "npm run build",
     "build": "npm run typecheck && npm run bundle",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist",
+    "bundle": "npm run bundle:extension && npm run bundle:webview",
+    "bundle:extension": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist",
+    "bundle:webview": "mkdir -p dist/webview && cp -r src/ui/webview/* dist/webview/",
     "watch": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --external:yaml --sourcemap --outdir=dist --watch",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -411,6 +468,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "puppeteer-core": "^22.15.0",
     "yaml": "^2.3.4"
   }
 }

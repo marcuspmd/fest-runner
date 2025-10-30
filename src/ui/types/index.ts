@@ -1,0 +1,235 @@
+/**
+ * Type definitions for the Test Maker UI
+ */
+
+// Re-export new types
+export * from './input';
+export * from './scenario';
+export * from './iteration';
+export * from './metadata';
+
+export type TestType = "api" | "unit" | "integration" | "e2e";
+
+export type StepType = "request" | "input" | "call" | "scenario";
+
+export type HttpMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "DELETE"
+  | "PATCH"
+  | "HEAD"
+  | "OPTIONS";
+
+export type AssertType =
+  | "equals"
+  | "notEquals"
+  | "contains"
+  | "notContains"
+  | "matches"
+  | "greaterThan"
+  | "lessThan"
+  | "exists"
+  | "notExists"
+  | "statusCode"
+  | "responseTime";
+
+export interface TestVariable {
+  name: string;
+  value: any;
+  source: string; // Which step this variable came from
+  type: "string" | "number" | "boolean" | "object" | "array";
+}
+
+export interface Assert {
+  id: string;
+  type: AssertType;
+  path: string; // JSONPath or XPath to the value to assert
+  expected?: any;
+  operator?: string;
+  message?: string;
+}
+
+export interface Capture {
+  id: string;
+  name: string; // Variable name to store the captured value
+  path: string; // JSONPath or XPath to the value to capture
+  type: "json" | "xml" | "text" | "regex" | "header";
+  pattern?: string; // For regex captures
+  defaultValue?: any;
+}
+
+export interface StepDependency {
+  stepId: string;
+  condition?: string; // Optional condition for the dependency
+}
+
+export interface LoopConfig {
+  enabled: boolean;
+  iterations?: number;
+  while?: string; // Condition expression
+  forEach?: string; // Variable or array to iterate over
+}
+
+export interface CallConfig {
+  type: "function" | "api" | "step";
+  target: string; // Function name, API endpoint, or step ID
+  parameters?: Record<string, any>;
+}
+
+export interface Scenario {
+  id: string;
+  name: string;
+  condition?: string; // When this scenario should execute
+  steps: TestStep[];
+}
+
+export interface TestStep {
+  id: string;
+  step_id?: string; // Optional step_id for referencing
+  name: string;
+  description?: string;
+  type?: StepType; // Type of step: request, input, call, scenario
+
+  // Request configuration (for type: "request")
+  url?: string;
+  method?: HttpMethod;
+  headers?: Record<string, string>;
+  body?: any;
+  queryParams?: Record<string, string>;
+
+  // Input configuration - UPDATED to support advanced inputs
+  input?: import('./input').InputConfig[]; // Array of advanced input configs
+
+  // Iteration configuration - NEW
+  iterate?: import('./iteration').IterationConfig;
+
+  // Scenarios configuration - NEW
+  scenarios?: import('./scenario').ScenarioConfig[];
+
+  // Step metadata - NEW
+  metadata?: import('./metadata').StepMetadata;
+
+  // Validation
+  asserts: Assert[];
+  captures: Capture[];
+
+  // Advanced features
+  depends?: StepDependency[];
+  loop?: LoopConfig;
+  call?: CallConfig;
+  scenario?: string; // Reference to scenario name
+  timeout?: number;
+  retries?: number;
+
+  // Variables available from previous steps
+  availableVariables?: TestVariable[];
+}
+
+export interface TestConfiguration {
+  // UPDATED: Use suite_name and base_url (snake_case) for YAML compatibility
+  suite_name: string;        // Suite name (replaces 'name')
+  node_id: string;           // Required - unique node identifier
+  base_url?: string;         // Base URL (snake_case)
+
+  // Legacy support
+  id?: string;               // Auto-generated ID
+  name?: string;             // Deprecated, use suite_name
+  baseUrl?: string;          // Deprecated, use base_url
+
+  description?: string;
+  type: TestType;
+  version: string;
+
+  // NEW: Dependencies
+  depends?: import('./metadata').DependsConfig[];
+
+  // NEW: Exports
+  exports?: string[];        // Variables to export
+
+  // Global configuration
+  headers?: Record<string, string>;
+  variables?: Record<string, any>;
+  timeout?: number;
+
+  // Test structure
+  steps: TestStep[];
+  scenarios?: Scenario[];
+
+  // NEW: Test metadata
+  metadata?: import('./metadata').TestMetadata;
+
+  // Legacy metadata
+  tags?: string[];
+  author?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  severity: "error" | "warning";
+}
+
+export interface GeneratedTest {
+  code: string;
+  language: "yaml" | "json" | "typescript";
+  valid: boolean;
+  errors?: ValidationError[];
+}
+
+// Message types for communication between WebView and Extension
+export type MessageType =
+  | "generate-test"
+  | "validate-url"
+  | "save-draft"
+  | "load-draft"
+  | "copy-to-clipboard"
+  | "test-generated"
+  | "url-validated"
+  | "draft-loaded"
+  | "error";
+
+export interface Message<T = any> {
+  type: MessageType;
+  payload: T;
+}
+
+export interface GenerateTestMessage extends Message<TestConfiguration> {
+  type: "generate-test";
+}
+
+export interface ValidateUrlMessage extends Message<string> {
+  type: "validate-url";
+}
+
+export interface SaveDraftMessage extends Message<TestConfiguration> {
+  type: "save-draft";
+}
+
+export interface LoadDraftMessage extends Message<void> {
+  type: "load-draft";
+}
+
+export interface CopyToClipboardMessage extends Message<string> {
+  type: "copy-to-clipboard";
+}
+
+export interface TestGeneratedMessage
+  extends Message<GeneratedTest & { success: boolean }> {
+  type: "test-generated";
+}
+
+export interface UrlValidatedMessage
+  extends Message<{ valid: boolean; error?: string }> {
+  type: "url-validated";
+}
+
+export interface DraftLoadedMessage extends Message<TestConfiguration | null> {
+  type: "draft-loaded";
+}
+
+export interface ErrorMessage extends Message<string> {
+  type: "error";
+}

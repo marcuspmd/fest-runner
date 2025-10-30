@@ -1,0 +1,378 @@
+/**
+ * responsive.css - Media queries and responsive layout adjustments
+ *
+ * Breakpoints:
+ * - Mobile: < 640px
+ * - Tablet: 640px - 1024px
+ * - Desktop: > 1024px
+ */
+
+/* ============================================
+   Tablet (640px - 1024px)
+   ============================================ */
+
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 240px;
+    --preview-width: 320px;
+  }
+
+  .header-title {
+    font-size: var(--font-size-lg);
+  }
+
+  .header-icon {
+    font-size: var(--font-size-xl);
+  }
+
+  /* Hide button text on smaller screens */
+  .btn-text {
+    display: none;
+  }
+
+  .btn {
+    padding: var(--space-sm);
+  }
+
+  /* Collapsible preview */
+  .preview-sidebar {
+    position: relative;
+  }
+
+  .preview-sidebar.auto-hide {
+    width: 48px;
+  }
+
+  .form-container {
+    max-width: 100%;
+  }
+}
+
+/* ============================================
+   Mobile (< 640px)
+   ============================================ */
+
+@media (max-width: 640px) {
+  :root {
+    --header-height: 56px;
+    --footer-height: auto;
+    --space-xl: 1.5rem;
+  }
+
+  /* Header adjustments */
+  .header-content {
+    padding: 0 var(--space-md);
+  }
+
+  .header-title {
+    font-size: var(--font-size-base);
+  }
+
+  .header-title .header-icon {
+    font-size: var(--font-size-lg);
+  }
+
+  .header-actions {
+    gap: var(--space-xs);
+  }
+
+  .btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-sm);
+  }
+
+  .btn-icon {
+    font-size: var(--font-size-base);
+  }
+
+  /* Layout: Stack vertically, hide sidebar by default */
+  .app-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+
+  /* Sidebar as overlay/drawer */
+  .sidebar {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    bottom: var(--footer-height);
+    width: 280px;
+    z-index: var(--z-fixed);
+    transform: translateX(-100%);
+    transition: transform var(--transition-base);
+    box-shadow: var(--shadow-xl);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Sidebar toggle button (hamburger) */
+  .sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: calc(var(--header-height) + var(--space-md));
+    left: var(--space-md);
+    width: 48px;
+    height: 48px;
+    background-color: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius-full);
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+    z-index: calc(var(--z-fixed) + 1);
+    transition: all var(--transition-fast);
+  }
+
+  .sidebar-toggle:hover {
+    background-color: var(--color-primary-dark);
+    transform: scale(1.05);
+  }
+
+  .sidebar-toggle-icon {
+    font-size: var(--font-size-xl);
+  }
+
+  .sidebar.open + .sidebar-toggle .sidebar-toggle-icon {
+    content: '✕';
+  }
+
+  /* Hide preview on mobile by default */
+  .preview-sidebar {
+    display: none;
+  }
+
+  /* Show preview as modal on mobile when requested */
+  .preview-sidebar.mobile-visible {
+    display: flex;
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    z-index: var(--z-modal);
+    border: none;
+    box-shadow: none;
+  }
+
+  /* Main content adjustments */
+  .main-content {
+    padding: var(--space-md);
+  }
+
+  .form-container {
+    max-width: 100%;
+  }
+
+  /* Footer stacks vertically */
+  .app-footer {
+    height: auto;
+    padding: var(--space-md);
+  }
+
+  .footer-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+
+  .footer-hint {
+    display: none; /* Hide keyboard shortcuts on mobile */
+  }
+
+  /* Form adjustments */
+  .form-group {
+    margin-bottom: var(--space-md);
+  }
+
+  .form-control {
+    font-size: var(--font-size-base); /* Prevent zoom on iOS */
+  }
+
+  /* Card adjustments */
+  .card-body, .card-header, .card-footer {
+    padding: var(--space-md);
+  }
+
+  /* Modal adjustments */
+  .modal {
+    width: 95%;
+    max-height: 85vh;
+  }
+
+  .modal-body, .modal-header, .modal-footer {
+    padding: var(--space-md);
+  }
+
+  /* Toast container */
+  .toast-container {
+    top: var(--space-md);
+    right: var(--space-sm);
+    left: var(--space-sm);
+    max-width: none;
+  }
+
+  /* Table responsiveness */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Reduce spacing */
+  .placeholder-message {
+    min-height: 200px;
+  }
+
+  .placeholder-icon {
+    font-size: 3rem;
+  }
+}
+
+/* ============================================
+   Landscape mobile (height < 500px)
+   ============================================ */
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .placeholder-message {
+    min-height: 150px;
+  }
+
+  .modal {
+    max-height: 95vh;
+  }
+
+  .sidebar {
+    overflow-y: scroll;
+  }
+}
+
+/* ============================================
+   Print styles
+   ============================================ */
+
+@media print {
+  .header,
+  .sidebar,
+  .preview-sidebar,
+  .footer,
+  .sidebar-toggle,
+  .btn,
+  button {
+    display: none !important;
+  }
+
+  .app-layout {
+    display: block;
+  }
+
+  .main-content {
+    padding: 0;
+  }
+
+  * {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ============================================
+   Reduced motion preference
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   High contrast mode
+   ============================================ */
+
+@media (prefers-contrast: high) {
+  :root {
+    --color-border: #000000;
+    --border-width: 2px;
+  }
+
+  .btn {
+    border-width: var(--border-width-thick);
+  }
+
+  .form-control:focus {
+    outline-width: 3px;
+  }
+}
+
+/* ============================================
+   Touch device optimizations
+   ============================================ */
+
+@media (hover: none) and (pointer: coarse) {
+  /* Increase tap target size */
+  .btn,
+  .nav-item,
+  .form-check-input,
+  button {
+    min-height: 44px; /* iOS recommended minimum */
+    min-width: 44px;
+  }
+
+  /* Remove hover effects on touch devices */
+  .btn:hover,
+  .nav-item:hover,
+  .card:hover {
+    background-color: inherit;
+  }
+
+  /* Add active state for touch feedback */
+  .btn:active {
+    transform: scale(0.98);
+  }
+}
+
+/* ============================================
+   Large screens (> 1440px)
+   ============================================ */
+
+@media (min-width: 1440px) {
+  :root {
+    --sidebar-width: 320px;
+    --preview-width: 480px;
+  }
+
+  .form-container {
+    max-width: 900px;
+  }
+
+  .main-content {
+    padding: var(--space-2xl);
+  }
+}
+
+/* ============================================
+   Extra large screens (> 1920px)
+   ============================================ */
+
+@media (min-width: 1920px) {
+  :root {
+    --font-size-base: 1.125rem;
+    --sidebar-width: 360px;
+    --preview-width: 560px;
+  }
+
+  .form-container {
+    max-width: 1200px;
+  }
+}

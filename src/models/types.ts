@@ -2,12 +2,14 @@ export interface FlowTestSuite {
   name: string;
   filePath: string;
   suite_name: string;
+  node_id?: string;
   base_url?: string;
   auth?: {
     type: string;
     token?: string;
   };
   steps: FlowTestStep[];
+  raw?: any;
 }
 
 export interface FlowTestCallConfig {
@@ -32,15 +34,6 @@ export interface FlowTestStep {
     body?: Record<string, any>;
   };
   input?: any;
-}
-
-export type FlowTestGraphDirection = "TD" | "LR" | "BT" | "RL";
-
-export interface FlowTestGraphConfig {
-  command?: string;
-  defaultDirection?: FlowTestGraphDirection;
-  defaultOutput?: string;
-  noOrphans?: boolean;
 }
 
 export interface TestResult {
@@ -72,13 +65,17 @@ export interface FlowTestConfig {
     exclude?: string[];
   };
   interactiveInputs?: boolean;
-  graph?: FlowTestGraphConfig;
   reporting?: {
     outputDir?: string;
+    formats?: string[];
     html?: {
       outputSubdir?: string;
       perSuite?: boolean;
       aggregate?: boolean;
+    };
+    pdf?: {
+      executablePath?: string;
+      outputSubdir?: string;
     };
   };
 }

@@ -45,6 +45,7 @@ describe("TestScanner", () => {
         },
       }),
       invalidateConfigForFile: vi.fn(),
+      hasConfigFile: vi.fn().mockResolvedValue(true),
     } as unknown as ConfigService;
 
     const configSpy = vi
@@ -56,6 +57,7 @@ describe("TestScanner", () => {
       suiteFile,
       [
         "suite_name: Call Suite",
+        "node_id: call-suite",
         "steps:",
         "  - name: Call Step",
         "    call:",

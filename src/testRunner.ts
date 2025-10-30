@@ -13,6 +13,8 @@ import {
 import * as yaml from "yaml";
 import { ConfigService } from "./services/configService";
 import { InputService } from "./services/inputService";
+import { HtmlResultsService } from "./services/htmlResultsService";
+import { quoteArgsForShell } from "./utils/commandLine";
 
 interface NormalizedInputOption {
   label: string;
@@ -84,6 +86,7 @@ export class TestRunner {
   private outputChannel: vscode.OutputChannel;
   private configService: ConfigService;
   private inputService: InputService;
+  private htmlResultsService: HtmlResultsService;
   private lastExecutionState: TestExecutionState | null = null;
 
   private _onTestResult: vscode.EventEmitter<TestResult> =
@@ -103,6 +106,7 @@ export class TestRunner {
     this.outputChannel = vscode.window.createOutputChannel("Flow Test Runner");
     this.configService = ConfigService.getInstance();
     this.inputService = InputService.getInstance();
+    this.htmlResultsService = HtmlResultsService.getInstance();
   }
 
   private shouldUseInteractiveInputs(config: FlowTestConfig): boolean {
@@ -174,6 +178,7 @@ export class TestRunner {
       cwd,
       config,
       processKey: `${cwd}-all-suites`,
+      workspacePath,
       fallbackSuiteName: undefined,
       successMessage: "✅ All Flow Tests completed successfully",
       failureMessage: "❌ Flow Test execution failed",
@@ -245,17 +250,17 @@ export class TestRunner {
     config?: FlowTestConfig,
     runOptions?: TestRunOptions
   ): Promise<void> {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(suitePath)
+    );
+    const workspacePath = workspaceFolder?.uri.fsPath;
+
     let finalConfig: FlowTestConfig;
     if (!config) {
-      const workspaceFolder = vscode.workspace.getWorkspaceFolder(
-        vscode.Uri.file(suitePath)
-      );
-      if (!workspaceFolder) {
+      if (!workspacePath) {
         throw new Error("No workspace folder found");
       }
-      finalConfig = await this.configService.getConfig(
-        workspaceFolder.uri.fsPath
-      );
+      finalConfig = await this.configService.getConfig(workspacePath);
     } else {
       finalConfig = config;
     }
@@ -321,6 +326,7 @@ export class TestRunner {
       stepName,
       stepId,
       suitePath,
+      workspacePath,
       preparedInputs,
       useInteractiveInputs,
       useCachedInputs,
@@ -339,6 +345,7 @@ export class TestRunner {
     stepName?: string;
     stepId?: string;
     suitePath?: string;
+    workspacePath?: string;
     preparedInputs?: {
       submissions: string[];
       userInputs: Record<string, string>;
@@ -358,6 +365,7 @@ export class TestRunner {
       stepName,
       stepId,
       suitePath,
+      workspacePath,
       preparedInputs = { submissions: [], userInputs: {} },
       useInteractiveInputs = false,
       useCachedInputs = false,
@@ -388,19 +396,36 @@ export class TestRunner {
         finalArgs.push(FLOW_INPUT_FLAG);
       }
 
-      if (config.outputFormat === "html" || config.outputFormat === "both") {
+      const rawConfiguredFormats = config.reporting?.formats;
+      const hasExplicitFormats =
+        Array.isArray(rawConfiguredFormats) && rawConfiguredFormats.length > 0;
+      const reportFormats = this.resolveReportFormats(config);
+      if (reportFormats.length > 0) {
+        finalArgs.push("--format", reportFormats.join(","));
+      }
+
+      const shouldEnableHtmlOutput =
+        hasExplicitFormats
+          ? reportFormats.includes("html")
+          : config.outputFormat === "html" || config.outputFormat === "both";
+
+      if (shouldEnableHtmlOutput && !finalArgs.includes("--html-output")) {
         finalArgs.push("--html-output");
       }
 
-      const commandLine = [config.command, ...finalArgs].join(" ").trim();
+      const preparedArgs = quoteArgsForShell(finalArgs);
+      const commandLine = [config.command, ...preparedArgs].join(" ").trim();
       this.outputChannel.appendLine(`📋 Executing command: ${commandLine}`);
       this.outputChannel.appendLine(`📁 Working directory: ${cwd}`);
       this.outputChannel.appendLine(
         `⚙️  Configuration: ${JSON.stringify(config, null, 2)}`
       );
+      this.outputChannel.appendLine(
+        `🎛️ Interactive inputs: ${useInteractiveInputs ? "enabled" : "disabled"}`
+      );
       this.outputChannel.appendLine("");
 
-      const testProcess = spawn(config.command, finalArgs, {
+      const testProcess = spawn(config.command, preparedArgs, {
         cwd,
         shell: true,
         timeout: config.timeout,
@@ -441,6 +466,7 @@ export class TestRunner {
       testProcess.stdout?.on("data", (data) => {
         const text = data.toString();
         if (interactiveController) {
+          this.outputChannel.appendLine(`[STDOUT] ${text}`);
           const forwarded = interactiveController.handleData(text);
           if (forwarded) {
             output += forwarded;
@@ -450,6 +476,7 @@ export class TestRunner {
           output += text;
           this.outputChannel.append(text);
         }
+        console.log("[STDOUT]", text);
       });
 
       testProcess.stderr?.on("data", (data) => {
@@ -515,6 +542,20 @@ export class TestRunner {
           hadFailures,
           aggregatedResult
         );
+
+        if (workspacePath && shouldEnableHtmlOutput) {
+          try {
+            await this.htmlResultsService.showResults(
+              workspacePath,
+              suiteLabel
+            );
+          } catch (error) {
+            console.warn(
+              "Failed to automatically display Flow Test HTML results:",
+              error
+            );
+          }
+        }
 
         if (
           interactiveContext &&
@@ -595,8 +636,7 @@ export class TestRunner {
 
   private toSubmissionValue(
     config: NormalizedInputConfig,
-    rawValue: string,
-    isDefault: boolean = false
+    rawValue: string
   ): string {
     switch (config.type) {
       case "select":
@@ -900,6 +940,15 @@ export class TestRunner {
       return;
     }
 
+    try {
+      this.outputChannel.appendLine(
+        `[FLOW_INPUT] ${JSON.stringify(payload)}`
+      );
+      console.log("[FLOW_INPUT]", payload);
+    } catch {
+      // ignore serialization issues
+    }
+
     const stepKey = this.buildInteractiveStepKey(payload, context);
     const config = this.mapInteractivePayloadToConfig(payload, stepKey);
     const request: UserInputRequest = {
@@ -915,6 +964,10 @@ export class TestRunner {
       })),
       defaultValue: config.defaultValue,
     };
+
+    this.outputChannel.appendLine(
+      `🧩 Input required: ${request.inputName} (step: ${request.stepName})`
+    );
 
     let rawValue: string | undefined;
 
@@ -940,7 +993,7 @@ export class TestRunner {
           config.defaultValue
         );
         context.process.stdin?.write(
-          `${this.toSubmissionValue(config, config.defaultValue, true)}\n`
+          `${this.toSubmissionValue(config, config.defaultValue)}\n`
         );
         return;
       }
@@ -1055,7 +1108,7 @@ export class TestRunner {
               input.defaultValue
             );
             submissions.push(
-              this.toSubmissionValue(input, input.defaultValue, true)
+              this.toSubmissionValue(input, input.defaultValue)
             );
             continue;
           }
@@ -1093,6 +1146,27 @@ export class TestRunner {
     }
 
     return { submissions, userInputs };
+  }
+
+  private resolveReportFormats(config: FlowTestConfig): string[] {
+    const formats = config.reporting?.formats;
+    if (Array.isArray(formats) && formats.length > 0) {
+      const normalized = formats
+        .map((format) => format.trim().toLowerCase())
+        .filter((format) => format.length > 0);
+      return Array.from(new Set(normalized));
+    }
+
+    switch (config.outputFormat) {
+      case "html":
+        return ["html"];
+      case "both":
+        return ["json", "html"];
+      case "json":
+        return ["json"];
+      default:
+        return [];
+    }
   }
 
   private getReportOutputCandidates(
@@ -1382,7 +1456,10 @@ export class TestRunner {
     }
   }
 
-  async retestLast(): Promise<void> {
+  async retestLast(options?: {
+    reportFormats?: string[];
+    description?: string;
+  }): Promise<void> {
     if (!this.lastExecutionState) {
       vscode.window.showWarningMessage("No previous test execution found");
       return;
@@ -1391,8 +1468,25 @@ export class TestRunner {
     const { suitePath, stepName, stepId, config, userInputs } =
       this.lastExecutionState;
 
+    const rawFormatOverrides = options?.reportFormats;
+    const sanitizedFormats = Array.isArray(rawFormatOverrides)
+      ? rawFormatOverrides
+          .map((format) => format.trim().toLowerCase())
+          .filter((format) => format.length > 0)
+      : [];
+    const hasFormatOverride = sanitizedFormats.length > 0;
+    const displayFormats = sanitizedFormats.map((format) =>
+      format.toUpperCase()
+    );
+    const customDescription = options?.description?.trim();
+    const headerMessage = customDescription
+      ? `🔄 ${customDescription}`
+      : hasFormatOverride
+      ? `🔄 Retesting with report formats: ${displayFormats.join(", ")}`
+      : "🔄 Retesting with previous configuration";
+
     this.outputChannel.show();
-    this.outputChannel.appendLine("🔄 Retesting with previous configuration");
+    this.outputChannel.appendLine(headerMessage);
     this.outputChannel.appendLine(`📦 Suite: ${path.basename(suitePath)}`);
     if (stepName) {
       this.outputChannel.appendLine(`🎯 Step: ${stepName}`);
@@ -1404,6 +1498,11 @@ export class TestRunner {
     this.outputChannel.appendLine(
       `📄 Config file: ${config.configFile || "default settings"}`
     );
+    if (hasFormatOverride) {
+      this.outputChannel.appendLine(
+        `🧾 Report formats override: ${displayFormats.join(", ")}`
+      );
+    }
     this.outputChannel.appendLine(
       `⏰ Original execution: ${new Date(
         this.lastExecutionState.timestamp
@@ -1417,18 +1516,53 @@ export class TestRunner {
     this.outputChannel.appendLine("=".repeat(50));
 
     try {
-      if (stepName) {
-        if (!stepId) {
+      if (hasFormatOverride) {
+        if (stepName && !stepId) {
           vscode.window.showWarningMessage(
             "Não foi possível repetir a execução do step porque o step_id não está disponível."
           );
           return;
         }
-        await this.runStep(suitePath, stepName, stepId, {
-          useCachedInputs: true,
-        });
+
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+          vscode.Uri.file(suitePath)
+        );
+        const workingDirectory =
+          config.workingDirectory ??
+          workspaceFolder?.uri.fsPath ??
+          path.dirname(suitePath);
+        const relativePath = path.relative(workingDirectory, suitePath);
+        const overrideConfig: FlowTestConfig = {
+          ...config,
+          reporting: {
+            ...(config.reporting ?? {}),
+            formats: sanitizedFormats,
+          },
+        };
+
+        await this.executeTest(
+          suitePath,
+          workingDirectory,
+          relativePath,
+          stepName,
+          stepId,
+          overrideConfig,
+          { useCachedInputs: true }
+        );
       } else {
-        await this.runSuite(suitePath, { useCachedInputs: true });
+        if (stepName) {
+          if (!stepId) {
+            vscode.window.showWarningMessage(
+              "Não foi possível repetir a execução do step porque o step_id não está disponível."
+            );
+            return;
+          }
+          await this.runStep(suitePath, stepName, stepId, {
+            useCachedInputs: true,
+          });
+        } else {
+          await this.runSuite(suitePath, { useCachedInputs: true });
+        }
       }
     } catch (error) {
       const errorMessage =
@@ -1477,6 +1611,293 @@ export class TestRunner {
 
   async editCachedInput(): Promise<void> {
     await this.inputService.editCachedInput();
+  }
+
+  /**
+   * Runs suite and shows JSON output in a formatted document
+   */
+  async runSuiteWithJsonOutput(suitePath: string): Promise<void> {
+    this.outputChannel.show();
+    this.outputChannel.appendLine("=".repeat(50));
+    this.outputChannel.appendLine("🚀 Executando teste com saída JSON");
+    this.outputChannel.appendLine(`📁 Suite path: ${suitePath}`);
+
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(suitePath)
+    );
+    if (!workspaceFolder) {
+      const errorMsg = "No workspace folder found";
+      this.outputChannel.appendLine(`❌ ${errorMsg}`);
+      vscode.window.showErrorMessage(errorMsg);
+      return;
+    }
+
+    this.outputChannel.appendLine(`📁 Workspace folder: ${workspaceFolder.uri.fsPath}`);
+
+    const config = await this.configService.getConfig(
+      workspaceFolder.uri.fsPath
+    );
+    const cwd = config.workingDirectory || workspaceFolder.uri.fsPath;
+    const relativePath = path.relative(cwd, suitePath);
+
+    this.outputChannel.appendLine(`📁 Working directory: ${cwd}`);
+    this.outputChannel.appendLine(`📄 Relative path: ${relativePath}`);
+    this.outputChannel.appendLine(`🔧 Command: ${config.command}`);
+
+    const useInteractiveInputs = this.shouldUseInteractiveInputs(config);
+    this.outputChannel.appendLine(`⚙️  Interactive inputs: ${useInteractiveInputs}`);
+
+    vscode.window.showInformationMessage(`🚀 Executando teste: ${relativePath}`);
+
+    try {
+      // Prepare inputs if not using interactive mode
+      const collectedInputs: Record<string, string> = {};
+      let preparedInputs: {
+        submissions: string[];
+        userInputs: Record<string, string>;
+      } = {
+        submissions: [],
+        userInputs: collectedInputs,
+      };
+
+      if (!useInteractiveInputs) {
+        this.outputChannel.appendLine("🔄 Coletando inputs necessários...");
+        try {
+          preparedInputs = await this.prepareInteractiveInputs(
+            suitePath,
+            undefined,
+            {
+              useCache: true,
+              suppressNotifications: false,
+            }
+          );
+          Object.assign(collectedInputs, preparedInputs.userInputs);
+          this.outputChannel.appendLine(
+            `✅ Inputs coletados: ${Object.keys(collectedInputs).length} valores`
+          );
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.outputChannel.appendLine(
+            `❌ Failed to prepare test inputs: ${errorMessage}`
+          );
+          vscode.window.showErrorMessage(
+            `Falha ao coletar inputs necessários: ${errorMessage}`
+          );
+          throw error;
+        }
+      }
+
+      this.outputChannel.appendLine("🔄 Iniciando execução...");
+      const result = await this.executeTestWithJsonOutput(
+        suitePath,
+        cwd,
+        relativePath,
+        config,
+        preparedInputs,
+        useInteractiveInputs,
+        collectedInputs
+      );
+
+      this.outputChannel.appendLine(`✅ Execução concluída. Exit code: ${result.exitCode}`);
+      this.outputChannel.appendLine(`📊 Output length: ${result.output.length} characters`);
+
+      // Show RAW output in a new document
+      const doc = await vscode.workspace.openTextDocument({
+        content: result.output,
+        language: 'text' // Use plain text to show raw output
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Beside
+      });
+
+      if (result.success) {
+        this.outputChannel.appendLine('✅ Teste executado com sucesso!');
+        vscode.window.showInformationMessage('✅ Teste executado com sucesso!');
+      } else {
+        this.outputChannel.appendLine(`❌ Teste falhou com código ${result.exitCode}`);
+        if (result.error) {
+          this.outputChannel.appendLine(`🔴 Error output:\n${result.error}`);
+        }
+        vscode.window.showErrorMessage(`❌ Teste falhou com código ${result.exitCode}`);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.outputChannel.appendLine(`❌ Erro ao executar teste: ${errorMessage}`);
+      if (error instanceof Error && error.stack) {
+        this.outputChannel.appendLine(`Stack trace:\n${error.stack}`);
+      }
+      vscode.window.showErrorMessage(`Erro ao executar teste: ${errorMessage}`);
+      throw error;
+    }
+  }
+
+  private async executeTestWithJsonOutput(
+    suitePath: string,
+    cwd: string,
+    relativePath: string,
+    config: FlowTestConfig,
+    preparedInputs?: {
+      submissions: string[];
+      userInputs: Record<string, string>;
+    },
+    useInteractiveInputs: boolean = false,
+    collectedInputs: Record<string, string> = {}
+  ): Promise<{ success: boolean; exitCode: number; output: any; error?: string }> {
+    return new Promise((resolve, reject) => {
+      const args = [relativePath, '--verbose', '--no-report'];
+
+      // Add live events for tree view updates
+      const liveEventsPath = this.prepareLiveEventsFile(cwd);
+      args.push('--live-events', liveEventsPath);
+
+      // Add interactive flag if using interactive mode
+      if (useInteractiveInputs) {
+        args.push(FLOW_INPUT_FLAG);
+      }
+
+      const preparedArgs = quoteArgsForShell(args);
+      this.outputChannel.appendLine(`📋 Comando completo: ${config.command} ${preparedArgs.join(' ')}`);
+      this.outputChannel.appendLine(`📁 CWD: ${cwd}`);
+      this.outputChannel.appendLine(`🔧 Interactive mode: ${useInteractiveInputs}`);
+      if (preparedInputs && preparedInputs.submissions.length > 0) {
+        this.outputChannel.appendLine(`🧩 Pre-collected inputs: ${preparedInputs.submissions.length}`);
+      }
+      this.outputChannel.appendLine("🔄 Spawning process...");
+
+      const testProcess = spawn(config.command, preparedArgs, {
+        cwd,
+        shell: true,
+        timeout: config.timeout
+      });
+
+      this.outputChannel.appendLine(`✅ Process spawned. PID: ${testProcess.pid}`);
+
+      // If not using interactive mode and we have prepared inputs, send them
+      if (!useInteractiveInputs && preparedInputs && preparedInputs.submissions.length > 0) {
+        this.outputChannel.appendLine(`📤 Sending ${preparedInputs.submissions.length} prepared inputs...`);
+        preparedInputs.submissions.forEach((submission, index) => {
+          testProcess.stdin?.write(`${submission}\n`);
+          this.outputChannel.appendLine(`  ✅ Input ${index + 1}: ${submission.substring(0, 50)}${submission.length > 50 ? '...' : ''}`);
+        });
+      }
+
+      let output = '';
+      let errorOutput = '';
+
+      // Setup interactive input controller if needed
+      const interactiveContext: InteractiveInputContext | undefined =
+        useInteractiveInputs
+          ? {
+              process: testProcess,
+              config,
+              suitePath,
+              stepName: undefined,
+              stepId: undefined,
+              collectedInputs,
+              useCache: true,
+              suppressNotifications: false,
+            }
+          : undefined;
+
+      const interactiveController = interactiveContext
+        ? this.createInteractiveInputController(interactiveContext)
+        : undefined;
+
+      testProcess.stdout?.on('data', (data) => {
+        const text = data.toString();
+
+        if (interactiveController) {
+          const forwarded = interactiveController.handleData(text);
+          if (forwarded) {
+            output += forwarded;
+            this.outputChannel.append(forwarded);
+          }
+        } else {
+          output += text;
+          this.outputChannel.append(text);
+        }
+      });
+
+      testProcess.stderr?.on('data', (data) => {
+        const text = data.toString();
+        errorOutput += text;
+        this.outputChannel.append(`[STDERR] ${text}`);
+      });
+
+      testProcess.on('close', async (code) => {
+        this.outputChannel.appendLine(`🏁 Process closed with code: ${code}`);
+
+        if (interactiveController) {
+          const remaining = interactiveController.flush();
+          if (remaining) {
+            output += remaining;
+            this.outputChannel.append(remaining);
+          }
+
+          try {
+            await interactiveController.waitForCompletion();
+          } catch (interactiveError) {
+            const message =
+              interactiveError instanceof Error
+                ? interactiveError.message
+                : String(interactiveError);
+            this.outputChannel.appendLine(
+              `❌ Erro ao processar inputs interativos: ${message}`
+            );
+          }
+        }
+
+        const exitCode = code ?? 0;
+        const success = exitCode === 0;
+
+        this.outputChannel.appendLine(`📊 Total output length: ${output.length} bytes`);
+        this.outputChannel.appendLine(`📊 Total error length: ${errorOutput.length} bytes`);
+
+        // Process live events to update tree view
+        const suiteLabel = path.basename(suitePath);
+        let dispatched = false;
+        let hadFailures = false;
+
+        try {
+          this.outputChannel.appendLine('🔍 Processing live events for tree view updates...');
+          const liveResult = await this.processLiveEvents(
+            liveEventsPath,
+            suiteLabel,
+            undefined
+          );
+          dispatched = liveResult.dispatched;
+          hadFailures = liveResult.hadFailures;
+          this.outputChannel.appendLine(`📊 Events processed: ${dispatched ? 'Yes' : 'No'}, Failures: ${hadFailures ? 'Yes' : 'No'}`);
+        } catch (error) {
+          this.outputChannel.appendLine(`⚠️ Failed to process live events: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        // Emit suite result
+        const aggregatedResult = await this.loadAggregatedResult(config, cwd);
+        this.emitSuiteResults(aggregatedResult, suiteLabel);
+
+        // Return raw output for debugging
+        this.outputChannel.appendLine('📋 Returning RAW output for debugging');
+
+        resolve({
+          success,
+          exitCode,
+          output: output, // Return raw string output
+          error: errorOutput || undefined
+        });
+      });
+
+      testProcess.on('error', (error) => {
+        this.outputChannel.appendLine(`❌ Process error: ${error.message}`);
+        if (error.stack) {
+          this.outputChannel.appendLine(`Stack: ${error.stack}`);
+        }
+        reject(error);
+      });
+    });
   }
 
   stopTest(suitePath: string, stepName?: string): void {
