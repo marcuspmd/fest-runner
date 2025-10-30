@@ -165,6 +165,13 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     vscode.commands.registerCommand(
+      "flow-test-runner.importCurl",
+      async () => {
+        await handleImportCurl(importExportService, configService);
+      }
+    ),
+
+    vscode.commands.registerCommand(
       "flow-test-runner.exportPostman",
       async (item) => {
         await handleExportPostman(
@@ -1077,6 +1084,174 @@ async function handleExportPostman(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     vscode.window.showErrorMessage(`Failed to export to Postman: ${message}`);
+  }
+}
+
+async function handleImportCurl(
+  importExportService: ImportExportService,
+  configService: ConfigService
+): Promise<void> {
+  const workspaceFolder = await selectWorkspaceFolder();
+  if (!workspaceFolder) {
+    vscode.window.showErrorMessage("No workspace folder found");
+    return;
+  }
+
+  const workspacePath = workspaceFolder.uri.fsPath;
+
+  const curlCommand = await vscode.window.showInputBox({
+    title: "Import/Execute cURL Command",
+    prompt: "Paste your cURL command here",
+    placeHolder: "curl -X GET https://api.example.com/endpoint",
+    ignoreFocusOut: true,
+    validateInput: (value) => {
+      if (!value || value.trim().length === 0) {
+        return "cURL command cannot be empty";
+      }
+      if (!value.trim().toLowerCase().startsWith("curl")) {
+        return "Command must start with 'curl'";
+      }
+      return null;
+    },
+  });
+
+  if (!curlCommand) {
+    return;
+  }
+
+  const actionItems = [
+    {
+      label: "Execute and Convert",
+      description: "Run the cURL command and convert response to Flow Test",
+      value: true,
+    },
+    {
+      label: "Convert Only",
+      description: "Convert cURL to Flow Test without executing",
+      value: false,
+    },
+  ];
+
+  const actionSelection = await vscode.window.showQuickPick(actionItems, {
+    title: "Choose Action",
+    placeHolder: "What would you like to do with this cURL command?",
+    ignoreFocusOut: true,
+  });
+
+  if (!actionSelection) {
+    return;
+  }
+
+  const execute = actionSelection.value;
+
+  let outputPath: string | undefined;
+
+  const shouldSaveItems = [
+    {
+      label: "Yes",
+      description: "Save to a test file",
+      value: true,
+    },
+    {
+      label: "No",
+      description: "Just show the result",
+      value: false,
+    },
+  ];
+
+  const shouldSave = await vscode.window.showQuickPick(shouldSaveItems, {
+    title: "Save Test File?",
+    placeHolder: "Would you like to save this as a test file?",
+    ignoreFocusOut: true,
+  });
+
+  if (!shouldSave) {
+    return;
+  }
+
+  if (shouldSave.value) {
+    const defaultOutputPath = path.join(
+      workspacePath,
+      "tests",
+      "imported",
+      "curl-test.yaml"
+    );
+
+    const outputUri = await vscode.window.showSaveDialog({
+      title: "Save Flow Test file",
+      saveLabel: "Save",
+      defaultUri: vscode.Uri.file(defaultOutputPath),
+      filters: {
+        YAML: ["yaml", "yml"],
+      },
+    });
+
+    if (!outputUri) {
+      return;
+    }
+
+    outputPath = outputUri.fsPath;
+  }
+
+  try {
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: execute ? "Executing cURL and converting..." : "Converting cURL...",
+      },
+      async () => {
+        return importExportService.importCurl({
+          workspacePath,
+          curlCommand,
+          outputPath,
+          execute,
+        });
+      }
+    );
+
+    let message: string;
+    if (result.outputPath) {
+      const relativeOutput = path.relative(workspacePath, result.outputPath);
+      const outputDisplay =
+        relativeOutput && !relativeOutput.startsWith("..")
+          ? relativeOutput
+          : result.outputPath;
+
+      message = execute
+        ? `cURL executed and saved to ${outputDisplay}`
+        : `cURL converted and saved to ${outputDisplay}`;
+    } else {
+      message = execute
+        ? "cURL executed successfully. Check Output panel for results."
+        : "cURL converted successfully. Check Output panel for results.";
+    }
+
+    const openOption = result.outputPath ? "Open File" : undefined;
+    const outputOption = "View Output";
+
+    const options = [outputOption];
+    if (openOption) {
+      options.unshift(openOption);
+    }
+
+    const action = await vscode.window.showInformationMessage(
+      message,
+      ...options
+    );
+
+    if (action === openOption && result.outputPath) {
+      const document = await vscode.workspace.openTextDocument(
+        vscode.Uri.file(result.outputPath)
+      );
+      await vscode.window.showTextDocument(document, {
+        preview: false,
+      });
+    } else if (action === outputOption) {
+      vscode.commands.executeCommand("workbench.action.output.show");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    vscode.window.showErrorMessage(`Failed to import cURL: ${message}`);
   }
 }
 

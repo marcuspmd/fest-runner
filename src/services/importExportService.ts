@@ -9,9 +9,17 @@ export interface ImportOptions {
   workspacePath: string;
   inputPath: string;
   outputPath: string;
-  type: "swagger" | "postman";
+  type: "swagger" | "postman" | "curl";
   preserveFolders?: boolean;
   analyzeDeps?: boolean;
+  curlCommand?: string;
+}
+
+export interface CurlImportOptions {
+  workspacePath: string;
+  curlCommand: string;
+  outputPath?: string;
+  execute?: boolean;
 }
 
 export interface ExportOptions {
@@ -25,6 +33,14 @@ export interface ImportExportResult {
   outputPath: string;
   command: string;
   args: string[];
+}
+
+export interface CurlExecutionResult {
+  outputPath?: string;
+  response?: string;
+  command: string;
+  args: string[];
+  executed: boolean;
 }
 
 export class ImportExportService implements vscode.Disposable {
@@ -195,6 +211,67 @@ export class ImportExportService implements vscode.Disposable {
     };
   }
 
+  async importCurl(options: CurlImportOptions): Promise<CurlExecutionResult> {
+    const config = await this.configService.getConfig(options.workspacePath);
+    const command = this.resolveCommand(config);
+    const cwd = config.workingDirectory ?? options.workspacePath;
+
+    const args = ["--curl-import", options.curlCommand];
+
+    if (options.outputPath) {
+      await this.ensureOutputDirectory(path.dirname(options.outputPath));
+      args.push("--curl-output", options.outputPath);
+    }
+
+    if (options.execute) {
+      args.push("--curl-execute");
+    }
+
+    if (config.configFile) {
+      args.push("--config", config.configFile);
+    }
+
+    this.outputChannel.show(true);
+    this.outputChannel.appendLine(
+      "================ Flow Test cURL Import ================"
+    );
+    this.outputChannel.appendLine(
+      `Command: ${command} ${args
+        .map((value) => this.quoteIfNeeded(value))
+        .join(" ")}`
+    );
+    this.outputChannel.appendLine(`Working directory: ${cwd}`);
+    this.outputChannel.appendLine(`cURL command: ${options.curlCommand}`);
+    if (options.outputPath) {
+      this.outputChannel.appendLine(`Output file: ${options.outputPath}`);
+    }
+    if (options.execute) {
+      this.outputChannel.appendLine(`Mode: Execute and convert`);
+    } else {
+      this.outputChannel.appendLine(`Mode: Convert only`);
+    }
+    this.outputChannel.appendLine(
+      "=========================================================="
+    );
+
+    const response = await this.runCommandWithOutput(
+      command,
+      args,
+      cwd,
+      config.timeout ?? 30000
+    );
+
+    this.outputChannel.appendLine("✅ cURL import completed successfully\n");
+
+    return {
+      outputPath: options.outputPath,
+      response,
+      command,
+      args,
+      executed: options.execute ?? false,
+    };
+  }
+
   private resolveCommand(config: FlowTestConfig): string {
     if (config.command && config.command.trim().length > 0) {
       return config.command.trim();
@@ -243,6 +320,56 @@ export class ImportExportService implements vscode.Disposable {
       process.on("close", (code) => {
         if (code === 0) {
           resolve();
+        } else {
+          const message =
+            stderr.trim().length > 0
+              ? stderr.trim()
+              : `Process exited with code ${code}`;
+          reject(new Error(message));
+        }
+      });
+    });
+  }
+
+  private runCommandWithOutput(
+    command: string,
+    args: string[],
+    cwd: string,
+    timeout: number
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let process: ChildProcess;
+      try {
+        process = spawn(command, args, {
+          cwd,
+          shell: false,
+          timeout,
+        });
+      } catch (error) {
+        return reject(error);
+      }
+
+      let stdout = "";
+      process.stdout?.on("data", (data) => {
+        const text = data.toString();
+        stdout += text;
+        this.outputChannel.append(text);
+      });
+
+      let stderr = "";
+      process.stderr?.on("data", (data) => {
+        const text = data.toString();
+        stderr += text;
+        this.outputChannel.append(text);
+      });
+
+      process.on("error", (error) => {
+        reject(error);
+      });
+
+      process.on("close", (code) => {
+        if (code === 0) {
+          resolve(stdout);
         } else {
           const message =
             stderr.trim().length > 0

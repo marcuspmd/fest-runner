@@ -138,6 +138,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "flow-test-runner.importCurl",
+        "title": "Import/Execute cURL",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "flow-test-runner.exportPostman",
         "title": "Export to Postman",
         "icon": "$(cloud-upload)"
@@ -219,6 +224,11 @@
           "command": "flow-test-runner.importPostman",
           "when": "view == flowTestExplorer",
           "group": "secondary@4"
+        },
+        {
+          "command": "flow-test-runner.importCurl",
+          "when": "view == flowTestExplorer",
+          "group": "secondary@5"
         }
       ],
       "view/item/context": [
@@ -308,6 +318,10 @@
         },
         {
           "command": "flow-test-runner.importPostman",
+          "when": "workspaceHasFlowTests"
+        },
+        {
+          "command": "flow-test-runner.importCurl",
           "when": "workspaceHasFlowTests"
         },
         {
