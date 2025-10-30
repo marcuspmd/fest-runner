@@ -1,0 +1,40 @@
+# Example Flow Test file to demonstrate autocomplete features
+# Try triggering autocomplete (Ctrl+Space) at various points
+
+suite_name: Example API Test
+node_id: example-api-test
+base_url: https://api.example.com
+
+variables:
+  api_version: v1
+  timeout: 5000
+
+steps:
+  - name: Get Users List
+    step_id: get-users
+    request:
+      method: GET
+      url: /users
+      headers:
+        Accept: application/json
+    assert:
+      status_code: 200
+      body:
+        success: true
+
+  - name: Create New User
+    step_id: create-user
+    request:
+      method: POST
+      url: /users
+      headers:
+        Content-Type: application/json
+      body:
+        name: Test User
+        email: test@example.com
+    assert:
+      status_code: 201
+    captures:
+      user_id:
+        path: data.id
+        as: created_user_id

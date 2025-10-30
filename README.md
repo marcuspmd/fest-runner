@@ -4,7 +4,16 @@ Uma extensão VS Code para executar e gerenciar testes do Flow Test Engine diret
 
 ## ✨ Funcionalidades
 
-### 🧪 Test Maker (NOVO!)
+### 💡 Autocomplete Inteligente (NOVO!)
+- **Sugestões Contextuais**: Autocomplete rico com documentação detalhada ao editar arquivos YAML
+- **Exemplos Práticos**: Cada campo vem com exemplos de código prontos para usar
+- **Valores Sugeridos**: Listas de valores válidos para métodos HTTP, status codes, tipos de input, etc.
+- **Documentação Inline**: Hover sobre qualquer campo para ver descrição completa, tipo e exemplos
+- **IntelliSense Avançado**: Navegação inteligente entre campos com validação em tempo real
+
+[📖 Ver Guia Completo de Autocomplete](docs/AUTOCOMPLETE_GUIDE.md)
+
+### 🧪 Test Maker
 - **Interface Visual**: Crie testes complexos sem escrever YAML manualmente
 - **Editor de Steps**: Configure requisições HTTP com interface intuitiva
 - **Assertions Visuais**: Adicione validações com construtores visuais
