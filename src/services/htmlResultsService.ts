@@ -624,6 +624,9 @@ export class HtmlResultsService {
       this.webviewPanel.title = `Flow Test Results - ${title}`;
     }
 
+    // Garantir que o painel fique em foco mesmo que já esteja aberto
+    this.webviewPanel.reveal(vscode.ViewColumn.Active, false);
+
     try {
       let htmlContent = await fs.promises.readFile(htmlPath, 'utf8');
 

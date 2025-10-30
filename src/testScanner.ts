@@ -315,7 +315,13 @@ export class TestScanner {
   }
 
   private isFlowTestFile(parsed: any): boolean {
-    if (!parsed) {
+    if (!parsed || typeof parsed !== "object") {
+      return false;
+    }
+
+    const hasNodeId =
+      typeof parsed.node_id === "string" && parsed.node_id.trim().length > 0;
+    if (!hasNodeId) {
       return false;
     }
 
@@ -324,31 +330,7 @@ export class TestScanner {
       return false;
     }
 
-    const hasValidStep = steps.every((step: any) => {
-      if (!step || !step.name) {
-        return false;
-      }
-
-      const hasRequest =
-        step.request &&
-        typeof step.request === "object" &&
-        typeof step.request.method === "string" &&
-        step.request.method.trim().length > 0 &&
-        typeof step.request.url === "string" &&
-        step.request.url.trim().length > 0;
-
-      const hasInput = step.input !== undefined && step.input !== null;
-
-      const hasCall =
-        step.call &&
-        typeof step.call === "object" &&
-        typeof step.call.test === "string" &&
-        step.call.test.trim().length > 0;
-
-      return hasRequest || hasInput || hasCall;
-    });
-
-    return hasValidStep;
+    return true;
   }
 
   private async loadSuite(filePath: string): Promise<FlowTestSuite | null> {
@@ -380,9 +362,14 @@ export class TestScanner {
         name: path.basename(normalizedPath, path.extname(normalizedPath)),
         filePath: normalizedPath,
         suite_name: parsed.suite_name || path.basename(normalizedPath),
+        node_id:
+          typeof parsed.node_id === "string"
+            ? parsed.node_id.trim()
+            : undefined,
         base_url: parsed.base_url,
         auth: parsed.auth,
         steps: parsed.steps || [],
+        raw: parsed,
       };
 
       this.suiteCache.set(normalizedPath, {

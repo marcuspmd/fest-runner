@@ -2,11 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "yaml";
-import {
-  FlowTestConfig,
-  FlowTestGraphConfig,
-  FlowTestGraphDirection,
-} from "../models/types";
+import { FlowTestConfig } from "../models/types";
 
 export class ConfigService {
   private static instance: ConfigService;
@@ -47,12 +43,6 @@ export class ConfigService {
         exclude: ["**/node_modules/**"],
       },
       interactiveInputs: true,
-      graph: {
-        command: "flow-test-engine",
-        defaultDirection: "TD",
-        defaultOutput: "flow-discovery.mmd",
-        noOrphans: false,
-      },
       reporting: {
         outputDir: "results",
         html: {
@@ -108,26 +98,26 @@ export class ConfigService {
           mergedReporting.outputDir = layer.outputDir;
         }
 
+        if (layer.formats && layer.formats.length > 0) {
+          mergedReporting.formats = [...layer.formats];
+        }
+
         if (layer.html) {
           mergedReporting.html = {
             ...mergedReporting.html,
             ...layer.html,
           };
         }
+
+        if (layer.pdf) {
+          mergedReporting.pdf = {
+            ...mergedReporting.pdf,
+            ...layer.pdf,
+          };
+        }
       }
 
       mergedConfig.reporting = mergedReporting;
-    }
-
-    const graphLayers = [
-      defaultConfig.graph,
-      configFromSettings.graph,
-      fileConfig.graph,
-    ];
-
-    const mergedGraph = this.mergeGraphConfigs(graphLayers);
-    if (mergedGraph) {
-      mergedConfig.graph = mergedGraph;
     }
 
     mergedConfig.testDirectories = this.normalizeDirectories(
@@ -182,29 +172,35 @@ export class ConfigService {
       retryCount: config.get<number>("retryCount"),
     };
 
-    const graphConfig: FlowTestGraphConfig = {};
-    const graphCommand = config.get<string>("graphCommand");
-    if (graphCommand && graphCommand.trim().length > 0) {
-      graphConfig.command = graphCommand.trim();
+    const reportFormatsSetting = config.get<string[]>("reportFormats");
+    const normalizedFormats = this.normalizeReportFormats(reportFormatsSetting);
+    if (normalizedFormats.length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        formats: normalizedFormats,
+      };
     }
 
-    const graphDirection = config.get<FlowTestGraphDirection>("graphDirection");
-    if (graphDirection && this.isValidGraphDirection(graphDirection)) {
-      graphConfig.defaultDirection = graphDirection;
+    const pdfExecutable = config.get<string>("pdfBrowserExecutable");
+    if (pdfExecutable && pdfExecutable.trim().length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        pdf: {
+          ...(partialConfig.reporting?.pdf ?? {}),
+          executablePath: pdfExecutable.trim(),
+        },
+      };
     }
 
-    const graphOutput = config.get<string>("graphOutput");
-    if (graphOutput && graphOutput.trim().length > 0) {
-      graphConfig.defaultOutput = graphOutput.trim();
-    }
-
-    const graphNoOrphans = config.get<boolean>("graphNoOrphans");
-    if (typeof graphNoOrphans === "boolean") {
-      graphConfig.noOrphans = graphNoOrphans;
-    }
-
-    if (Object.keys(graphConfig).length > 0) {
-      partialConfig.graph = graphConfig;
+    const pdfOutputSubdir = config.get<string>("pdfOutputSubdir");
+    if (pdfOutputSubdir && pdfOutputSubdir.trim().length > 0) {
+      partialConfig.reporting = {
+        ...(partialConfig.reporting ?? {}),
+        pdf: {
+          ...(partialConfig.reporting?.pdf ?? {}),
+          outputSubdir: pdfOutputSubdir.trim(),
+        },
+      };
     }
 
     return partialConfig;
@@ -307,6 +303,18 @@ export class ConfigService {
         reportingConfig.outputDir = outputDirValue.trim();
       }
 
+      const formatsSource =
+        reportingSource.formats ??
+        reportingSource.format ??
+        reportingSource.outputFormats ??
+        reportingSource.output_formats ??
+        reportingSource.outputFormat ??
+        reportingSource.output_format;
+      const normalizedFormats = this.normalizeReportFormats(formatsSource);
+      if (normalizedFormats.length > 0) {
+        reportingConfig.formats = normalizedFormats;
+      }
+
       if (reportingSource.html && typeof reportingSource.html === "object") {
         const htmlSource = reportingSource.html;
         const htmlConfig: NonNullable<
@@ -337,52 +345,48 @@ export class ConfigService {
         }
       }
 
+      const pdfSource =
+        reportingSource.pdf && typeof reportingSource.pdf === "object"
+          ? reportingSource.pdf
+          : undefined;
+      if (pdfSource) {
+        const pdfConfig: NonNullable<
+          NonNullable<FlowTestConfig["reporting"]>["pdf"]
+        > = {};
+
+        const executableCandidate =
+          pdfSource.executablePath ??
+          pdfSource.executable_path ??
+          pdfSource.browser ??
+          pdfSource.path ??
+          reportingSource.pdfExecutable ??
+          reportingSource.pdf_executable;
+        if (
+          typeof executableCandidate === "string" &&
+          executableCandidate.trim().length > 0
+        ) {
+          pdfConfig.executablePath = executableCandidate.trim();
+        }
+
+        const outputSubdirCandidate =
+          pdfSource.outputSubdir ??
+          pdfSource.output_subdir ??
+          reportingSource.pdfOutputSubdir ??
+          reportingSource.pdf_output_subdir;
+        if (
+          typeof outputSubdirCandidate === "string" &&
+          outputSubdirCandidate.trim().length > 0
+        ) {
+          pdfConfig.outputSubdir = outputSubdirCandidate.trim();
+        }
+
+        if (Object.keys(pdfConfig).length > 0) {
+          reportingConfig.pdf = pdfConfig;
+        }
+      }
+
       if (Object.keys(reportingConfig).length > 0) {
         validatedConfig.reporting = reportingConfig;
-      }
-    }
-
-    const graphLayers: FlowTestGraphConfig[] = [];
-
-    if (config.graph && typeof config.graph === "object") {
-      const graphConfig = this.normalizeGraphInput(config.graph);
-      if (graphConfig) {
-        graphLayers.push(graphConfig);
-      }
-    }
-
-    const legacyGraph = this.normalizeGraphInput({
-      command:
-        config.graphCommand ??
-        config.graph_command ??
-        config.graphCmd ??
-        config.graph_cmd,
-      defaultDirection:
-        config.graphDirection ??
-        config.graph_direction ??
-        config.direction ??
-        config.graphDir ??
-        config.graph_dir,
-      defaultOutput:
-        config.graphOutput ??
-        config.graph_output ??
-        config.graphDefaultOutput ??
-        config.graph_default_output,
-      noOrphans:
-        config.graphNoOrphans ??
-        config.graph_no_orphans ??
-        config.noOrphans ??
-        config.no_orphans,
-    });
-
-    if (legacyGraph) {
-      graphLayers.push(legacyGraph);
-    }
-
-    if (graphLayers.length > 0) {
-      const mergedGraph = this.mergeGraphConfigs(graphLayers);
-      if (mergedGraph) {
-        validatedConfig.graph = mergedGraph;
       }
     }
 
@@ -468,106 +472,36 @@ export class ConfigService {
     };
   }
 
-  private normalizeGraphInput(value: any): FlowTestGraphConfig | undefined {
-    if (!value || typeof value !== "object") {
-      return undefined;
+  private normalizeReportFormats(source: any): string[] {
+    if (!source) {
+      return [];
     }
 
-    const graphConfig: FlowTestGraphConfig = {};
+    const values: string[] = [];
 
-    const commandCandidate = [value.command, value.cmd, value.executable].find(
-      (candidate) =>
-        typeof candidate === "string" && candidate.trim().length > 0
-    );
-    if (typeof commandCandidate === "string") {
-      graphConfig.command = commandCandidate.trim();
-    }
+    const append = (value: unknown) => {
+      if (typeof value !== "string") {
+        return;
+      }
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed.length > 0) {
+        values.push(trimmed);
+      }
+    };
 
-    const directionCandidate = [
-      value.defaultDirection,
-      value.direction,
-      value.dir,
-    ].find(
-      (candidate) =>
-        typeof candidate === "string" && candidate.trim().length > 0
-    );
-
-    if (typeof directionCandidate === "string") {
-      const normalized = directionCandidate.trim().toUpperCase();
-      if (this.isValidGraphDirection(normalized)) {
-        graphConfig.defaultDirection = normalized as FlowTestGraphDirection;
+    if (Array.isArray(source)) {
+      for (const item of source) {
+        append(item);
+      }
+    } else if (typeof source === "string") {
+      const delimiter = source.includes(",") ? "," : /\s+/;
+      const tokens = source.split(delimiter);
+      for (const token of tokens) {
+        append(token);
       }
     }
 
-    const outputCandidate = [
-      value.defaultOutput,
-      value.output,
-      value.file,
-      value.path,
-      value.filename,
-    ].find(
-      (candidate) =>
-        typeof candidate === "string" && candidate.trim().length > 0
-    );
-
-    if (typeof outputCandidate === "string") {
-      graphConfig.defaultOutput = outputCandidate.trim();
-    }
-
-    const noOrphansCandidate =
-      value.noOrphans ??
-      value.no_orphans ??
-      value.disableOrphans ??
-      value.disable_orphans;
-
-    if (typeof noOrphansCandidate === "boolean") {
-      graphConfig.noOrphans = noOrphansCandidate;
-    }
-
-    return Object.keys(graphConfig).length > 0 ? graphConfig : undefined;
-  }
-
-  private mergeGraphConfigs(
-    configs: Array<FlowTestGraphConfig | undefined>
-  ): FlowTestGraphConfig | undefined {
-    const merged: FlowTestGraphConfig = {};
-
-    for (const config of configs) {
-      if (!config) {
-        continue;
-      }
-
-      if (typeof config.command === "string") {
-        merged.command = config.command;
-      }
-
-      if (config.defaultDirection) {
-        merged.defaultDirection = config.defaultDirection;
-      }
-
-      if (typeof config.defaultOutput === "string") {
-        merged.defaultOutput = config.defaultOutput;
-      }
-
-      if (typeof config.noOrphans === "boolean") {
-        merged.noOrphans = config.noOrphans;
-      }
-    }
-
-    return Object.keys(merged).length > 0 ? merged : undefined;
-  }
-
-  private isValidGraphDirection(
-    value: string
-  ): value is FlowTestGraphDirection {
-    if (!value) {
-      return false;
-    }
-
-    const normalized = value.trim().toUpperCase();
-    return (["TD", "LR", "BT", "RL"] as FlowTestGraphDirection[]).includes(
-      normalized as FlowTestGraphDirection
-    );
+    return this.dedupeStrings(values);
   }
 
   private toStringArray(value: unknown): string[] {

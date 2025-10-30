@@ -2,8 +2,19 @@
 
 Uma extensão VS Code para executar e gerenciar testes do Flow Test Engine diretamente no editor.
 
-## Funcionalidades
+## ✨ Funcionalidades
 
+### 🧪 Test Maker (NOVO!)
+- **Interface Visual**: Crie testes complexos sem escrever YAML manualmente
+- **Editor de Steps**: Configure requisições HTTP com interface intuitiva
+- **Assertions Visuais**: Adicione validações com construtores visuais
+- **Captures**: Extraia variáveis de respostas para usar em steps seguintes
+- **Geração de Código**: Gera YAML/JSON automaticamente
+- **Salvar Arquivo**: Salve testes diretamente no seu workspace
+
+[📖 Ver Guia Completo do Test Maker](docs/TEST_MAKER_GUIDE.md)
+
+### 🔄 Execução de Testes
 - **Descoberta Automática**: Encontra automaticamente arquivos de teste Flow (`.yml`/`.yaml`)
 - **Visualização em Árvore**: Exibe suites e steps de teste em um painel lateral
 - **Execução de Testes**: Execute testes individuais ou suites completas
@@ -18,61 +29,33 @@ Uma extensão VS Code para executar e gerenciar testes do Flow Test Engine diret
 - Node.js 16+ instalado
 - Flow Test Engine (`npm install -g flow-test-engine`)
 
-## Como Usar
+## 🚀 Quick Start
+
+### Criando um Novo Teste
+
+1. Abra a Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Digite "Open Test Maker"
+3. Selecione "Flow Test Runner: Open Test Maker"
+4. Configure seu teste usando a interface visual:
+   - Defina nome e tipo do teste
+   - Adicione steps com requisições HTTP
+   - Configure assertions e captures
+   - Clique em "Generate Test"
+5. Salve o arquivo gerado no seu workspace
+
+### Executando Testes Existentes
 
 1. Abra um workspace que contenha arquivos de teste Flow Test (`.yml` ou `.yaml`)
 2. O painel "Flow Tests" aparecerá na barra lateral do Explorer
 3. Clique nos ícones de play para executar testes individuais ou suites
 4. Veja os resultados no canal "Flow Test Runner" no Output
 
-## Estrutura de Arquivos de Teste
-
-A extensão reconhece arquivos YAML com a estrutura do Flow Test Engine:
-
-```yaml
-suite_name: "API Tests"
-base_url: "https://api.example.com"
-
-steps:
-  - name: "Test endpoint"
-    request:
-      method: "GET"
-      url: "/health"
-    assert:
-      status_code: 200
-```
-
-## Configuração
-
-Você pode ajustar o comportamento da descoberta de testes criando um arquivo `flow-test.config.yml` (ou usando o `test-config.yml` deste repositório como base). Um exemplo de configuração focada em projetos grandes:
-
-```yaml
-command: flow-test-engine
-test_directory: ./tests
-
-interactive_inputs: true
-
-discovery:
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/tests/**/*.yaml"
-  exclude:
-    - "**/temp/**"
-    - "**/node_modules/**"
-    - "**/results/**"
-```
-
-Também é possível monitorar múltiplas pastas com `test_directories`:
-
-```yaml
-test_directories:
-  - ./tests
-  - ./integration-tests
-```
-
 ## Comandos
 
+### Test Maker
+- `flow-test-runner.openTestMaker`: Abrir Test Maker (interface visual)
+
+### Execução de Testes
 - `flow-test-runner.refresh`: Atualizar lista de testes
 - `flow-test-runner.runTest`: Executar teste selecionado
 - `flow-test-runner.runSuite`: Executar suite completa

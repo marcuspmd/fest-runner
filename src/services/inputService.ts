@@ -44,6 +44,7 @@ export class InputService {
     const type = (request.type || '').toLowerCase();
 
     if (type === 'select' && request.options && request.options.length > 0) {
+      vscode.window.showInformationMessage(request.prompt);
       const items = request.options.map((option, index) => ({
         label: option.label || String(option.value),
         description: option.description,
