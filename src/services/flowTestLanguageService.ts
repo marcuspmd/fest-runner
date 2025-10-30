@@ -44,138 +44,431 @@ type DocumentationEntry = {
   title: string;
   description: string;
   url?: string;
+  examples?: string[];
+  possibleValues?: string[];
+  type?: string;
 };
 
 const ROOT_KEY_SUGGESTIONS: DocumentationEntry[] = [
   {
     title: "suite_name",
+    type: "string",
     description:
-      "Nome amigável do fluxo. Aparece em relatórios e na árvore do Flow Test Runner.",
+      "Nome amigável do fluxo de teste. Este nome aparece nos relatórios HTML, na árvore do Flow Test Runner e facilita a identificação do teste.",
+    examples: [
+      "Login de Usuário",
+      "Criar Pedido Completo",
+      "Validação de API de Produtos"
+    ],
   },
   {
     title: "node_id",
+    type: "string (kebab-case)",
     description:
-      "Identificador único (kebab-case). É usado como referência entre suites e relatórios.",
+      "Identificador único em formato kebab-case. Usado como referência em chamadas entre suites (via 'call.test'), dependências e URLs de relatórios. Recomenda-se usar apenas letras minúsculas, números e hífens.",
+    examples: [
+      "login-usuario",
+      "criar-pedido",
+      "validacao-api-produtos"
+    ],
   },
   {
     title: "base_url",
+    type: "string (URL)",
     description:
-      "URL base utilizada como prefixo para requisições HTTP das etapas.",
+      "URL base que será usada como prefixo para todas as requisições HTTP nos steps. Facilita a portabilidade dos testes entre ambientes (dev, staging, produção).",
+    examples: [
+      "https://api.example.com",
+      "http://localhost:3000",
+      "${ENV_API_URL}"
+    ],
   },
   {
     title: "variables",
+    type: "object",
     description:
-      "Mapa de variáveis globais disponíveis para todos os passos e cenários.",
+      "Mapa de variáveis globais disponíveis para todos os passos e cenários do teste. Use variáveis para evitar repetição de valores e facilitar a manutenção. As variáveis podem ser referenciadas usando ${variavel}.",
+    examples: [
+      "api_version: v1",
+      "timeout: 5000",
+      "user_id: 12345"
+    ],
   },
   {
     title: "depends",
+    type: "array",
     description:
-      "Lista de node_id de suites que precisam ser executadas antes deste fluxo.",
+      "Lista de node_id de outras suites que devem ser executadas antes desta. Útil para garantir que dados de setup (como criar usuário) sejam executados antes dos testes que dependem deles.",
+    examples: [
+      "- setup-database",
+      "- criar-usuario-teste",
+      "- autenticar"
+    ],
   },
   {
     title: "exports",
+    type: "array",
     description:
-      "Variáveis exportadas por este fluxo para serem utilizadas em outros testes.",
+      "Lista de nomes de variáveis que serão exportadas deste teste e ficarão disponíveis para outros testes que o chamarem. Útil para compartilhar tokens de autenticação, IDs criados, etc.",
+    examples: [
+      "- auth_token",
+      "- user_id",
+      "- order_id"
+    ],
   },
   {
     title: "scenarios",
+    type: "object",
     description:
-      "Cenários que agrupam conjuntos alternativos de steps. Permite reutilização e variação de entradas.",
+      "Define cenários alternativos que permitem executar diferentes conjuntos de steps. Cada cenário substitui os steps padrão, permitindo reutilizar a mesma estrutura de teste com diferentes dados ou fluxos.",
+    examples: [
+      "sucesso:",
+      "  - name: Login bem-sucedido",
+      "falha:",
+      "  - name: Login com senha inválida"
+    ],
   },
   {
     title: "steps",
+    type: "array",
     description:
-      "Sequência de passos executados pelo Flow Test Engine. Pode conter requisições, asserts, chamadas de outros testes e inputs.",
+      "Sequência de passos executados pelo Flow Test Engine. Cada step pode conter uma requisição HTTP (request), validações (assert), chamadas para outros testes (call), ou solicitar entrada do usuário (input).",
+    examples: [
+      "- name: Buscar usuários",
+      "  request:",
+      "    method: GET",
+      "    url: /users"
+    ],
   },
 ];
 
 const STEP_KEY_SUGGESTIONS: DocumentationEntry[] = [
   {
     title: "name",
-    description: "Título do passo. Utilizado nos relatórios e nas execuções.",
+    type: "string",
+    description: "Nome descritivo do passo. Aparece nos relatórios, logs e na interface do Flow Test Runner para facilitar a identificação de cada etapa do teste.",
+    examples: [
+      "Login com credenciais válidas",
+      "Criar novo produto",
+      "Validar resposta da API"
+    ],
   },
   {
     title: "step_id",
+    type: "string",
     description:
-      "Identificador estável do passo. Útil para granularidade em retestes ou referências.",
+      "Identificador único e estável do passo. Permite executar steps individuais e é útil para retestes granulares. Use formato kebab-case ou snake_case.",
+    examples: [
+      "login-step",
+      "create_product",
+      "validate-response"
+    ],
   },
   {
     title: "request",
+    type: "object",
     description:
-      "Configuração de uma requisição HTTP (método, URL, headers, corpo).",
+      "Configuração de uma requisição HTTP. Inclui método (GET, POST, PUT, DELETE, etc), URL, headers, query parameters e corpo da requisição.",
+    examples: [
+      "method: GET",
+      "url: /api/users/${user_id}",
+      "headers:",
+      "  Authorization: Bearer ${token}"
+    ],
   },
   {
     title: "assert",
+    type: "object",
     description:
-      "Regras de validação sobre a resposta do passo (status_code, corpo, headers).",
+      "Define regras de validação para a resposta do step. Pode validar status HTTP, conteúdo do corpo, headers, tempo de resposta, entre outros.",
+    examples: [
+      "status_code: 200",
+      "body:",
+      "  success: true",
+      "  data.length: 10"
+    ],
   },
   {
     title: "call",
+    type: "object",
     description:
-      "Chamada para outro Flow Test ou Step, permitindo composição de fluxos.",
+      "Chama outro Flow Test ou um step específico, permitindo a composição e reutilização de testes. Útil para criar testes modulares.",
+    examples: [
+      "test: autenticacao",
+      "test: criar-usuario",
+      "step: login-step"
+    ],
   },
   {
     title: "input",
+    type: "object",
     description:
-      "Solicitação de input dinâmico ao usuário ou uso de valores cacheados.",
+      "Solicita entrada do usuário durante a execução do teste. Suporta diferentes tipos (text, number, select, boolean) e pode usar valores em cache para execuções subsequentes.",
+    examples: [
+      "variable: email",
+      "prompt: Digite o e-mail",
+      "type: text",
+      "default: usuario@exemplo.com"
+    ],
   },
   {
     title: "scenario",
+    type: "string",
     description:
-      "Nome de um cenário definido no fluxo. Permite trocar blocos de steps conforme o contexto.",
+      "Nome do cenário a ser usado para este step. Permite alternar entre diferentes variações de um mesmo teste definidas na seção 'scenarios'.",
+    examples: [
+      "sucesso",
+      "falha",
+      "timeout"
+    ],
   },
   {
     title: "depends",
+    type: "array",
     description:
-      "Dependências específicas daquele passo, referenciando node_id de outras suites.",
+      "Lista de node_id de outras suites que devem ser executadas antes deste step específico. Útil quando apenas um passo tem dependência externa.",
+    examples: [
+      "- setup-database",
+      "- criar-dados-teste"
+    ],
   },
   {
     title: "captures",
+    type: "object",
     description:
-      "Configuração para capturar valores da resposta e armazená-los como variáveis.",
+      "Extrai valores da resposta HTTP e os armazena como variáveis para uso em steps posteriores. Suporta JSONPath para navegação em objetos complexos.",
+    examples: [
+      "user_id:",
+      "  path: data.id",
+      "auth_token:",
+      "  path: token",
+      "  as: AUTH_TOKEN"
+    ],
   },
   {
     title: "metadata",
+    type: "object",
     description:
-      "Metadados adicionais do passo (tags, autores, observações).",
+      "Metadados adicionais do passo como tags, categoria, autor ou observações. Útil para organização e geração de documentação.",
+    examples: [
+      "tags:",
+      "  - autenticacao",
+      "  - critico",
+      "author: João Silva"
+    ],
   },
 ];
 
 const CALL_KEY_SUGGESTIONS: DocumentationEntry[] = [
   {
     title: "test",
+    type: "string",
     description:
-      "Identificador do fluxo a ser chamado (suite_name, node_id ou caminho relativo).",
+      "Identificador do fluxo de teste a ser chamado. Pode ser o suite_name, node_id ou caminho relativo do arquivo. O teste chamado será executado completamente ou apenas um step se especificado.",
+    examples: [
+      "autenticacao",
+      "login-usuario",
+      "./auth/login.yml"
+    ],
   },
   {
     title: "step",
+    type: "string",
     description:
-      "Opcional. Permite executar somente um passo específico do fluxo chamado.",
+      "Opcional. Nome ou step_id de um passo específico dentro do teste chamado. Quando especificado, executa apenas aquele step ao invés da suite completa.",
+    examples: [
+      "login-step",
+      "create_user",
+      "validate-token"
+    ],
   },
   {
     title: "isolate_context",
+    type: "boolean",
     description:
-      "Quando true, executa o fluxo chamado em contexto isolado, sem compartilhar variáveis.",
+      "Quando true, executa o teste chamado em um contexto isolado, sem compartilhar variáveis com o teste atual. Útil para evitar conflitos de variáveis.",
+    possibleValues: ["true", "false"],
+    examples: [
+      "true",
+      "false"
+    ],
   },
   {
     title: "on_error",
+    type: "string",
     description:
-      "Define comportamento em falhas (ex.: continue, stop, retry).",
+      "Define o comportamento quando o teste/step chamado falha. Opções: 'continue' (continua execução), 'stop' (para execução), 'retry' (tenta novamente).",
+    possibleValues: ["continue", "stop", "retry"],
+    examples: [
+      "continue",
+      "stop",
+      "retry"
+    ],
   },
 ];
 
 const ASSERT_KEY_SUGGESTIONS: DocumentationEntry[] = [
   {
     title: "status_code",
-    description: "Valida o status HTTP da resposta.",
+    type: "number",
+    description: "Valida o código de status HTTP da resposta. Pode ser um número exato ou uma lista de códigos aceitos.",
+    possibleValues: ["200", "201", "204", "400", "401", "403", "404", "500"],
+    examples: [
+      "200",
+      "201",
+      "[200, 201]"
+    ],
   },
   {
     title: "body",
-    description: "Valida campos do corpo da resposta via matching de objetos.",
+    type: "object",
+    description: "Valida o conteúdo do corpo da resposta. Suporta validação de campos específicos, tipos de dados, valores exatos ou padrões. Use notação de ponto para campos aninhados (ex: data.user.name).",
+    examples: [
+      "success: true",
+      "data.id: ${user_id}",
+      "items.length: 10",
+      "user.email: usuario@exemplo.com"
+    ],
   },
   {
     title: "headers",
-    description: "Valida cabeçalhos específicos da resposta.",
+    type: "object",
+    description: "Valida cabeçalhos HTTP específicos da resposta. Útil para verificar Content-Type, autenticação, cache, etc.",
+    examples: [
+      "Content-Type: application/json",
+      "Authorization: Bearer ${token}",
+      "Cache-Control: no-cache"
+    ],
+  },
+];
+
+const REQUEST_KEY_SUGGESTIONS: DocumentationEntry[] = [
+  {
+    title: "method",
+    type: "string",
+    description: "Método HTTP da requisição. Define a ação a ser executada no servidor.",
+    possibleValues: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    examples: [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+  },
+  {
+    title: "url",
+    type: "string",
+    description: "URL ou caminho da requisição. Pode ser relativo (usa base_url) ou absoluto. Suporta interpolação de variáveis com ${variavel}.",
+    examples: [
+      "/api/users",
+      "/users/${user_id}",
+      "https://api.example.com/products"
+    ],
+  },
+  {
+    title: "headers",
+    type: "object",
+    description: "Cabeçalhos HTTP da requisição. Usado para autenticação, tipo de conteúdo, etc.",
+    examples: [
+      "Content-Type: application/json",
+      "Authorization: Bearer ${auth_token}",
+      "Accept: application/json"
+    ],
+  },
+  {
+    title: "query",
+    type: "object",
+    description: "Parâmetros de query string (URL parameters). Automaticamente codificados e adicionados à URL.",
+    examples: [
+      "page: 1",
+      "limit: 10",
+      "search: ${search_term}"
+    ],
+  },
+  {
+    title: "body",
+    type: "string | object",
+    description: "Corpo da requisição. Pode ser JSON (object), string ou conteúdo de arquivo. Usado principalmente com POST, PUT e PATCH.",
+    examples: [
+      "username: usuario",
+      "password: senha123",
+      "email: ${user_email}"
+    ],
+  },
+  {
+    title: "timeout",
+    type: "number",
+    description: "Timeout específico para esta requisição em milissegundos. Sobrescreve o timeout global do teste.",
+    examples: [
+      "5000",
+      "10000",
+      "30000"
+    ],
+  },
+];
+
+const INPUT_KEY_SUGGESTIONS: DocumentationEntry[] = [
+  {
+    title: "variable",
+    type: "string",
+    description: "Nome da variável que armazenará o valor fornecido pelo usuário. Esta variável ficará disponível para os próximos steps usando ${variable}.",
+    examples: [
+      "email",
+      "password",
+      "user_id"
+    ],
+  },
+  {
+    title: "prompt",
+    type: "string",
+    description: "Mensagem exibida ao usuário solicitando a entrada. Seja claro e específico sobre o que é esperado.",
+    examples: [
+      "Digite o e-mail do usuário",
+      "Informe a senha",
+      "Escolha o ambiente"
+    ],
+  },
+  {
+    title: "type",
+    type: "string",
+    description: "Tipo de entrada solicitada. Define como o valor será coletado e validado.",
+    possibleValues: ["text", "number", "select", "boolean", "password"],
+    examples: [
+      "text",
+      "number",
+      "select",
+      "boolean"
+    ],
+  },
+  {
+    title: "default",
+    type: "string | number | boolean",
+    description: "Valor padrão usado se o usuário não fornecer entrada. Útil para facilitar execuções rápidas.",
+    examples: [
+      "usuario@exemplo.com",
+      "123",
+      "true"
+    ],
+  },
+  {
+    title: "options",
+    type: "array",
+    description: "Lista de opções disponíveis quando type é 'select'. O usuário escolherá uma das opções da lista.",
+    examples: [
+      "- desenvolvimento",
+      "- staging",
+      "- producao"
+    ],
+  },
+  {
+    title: "masked",
+    type: "boolean",
+    description: "Quando true, oculta o valor digitado (útil para senhas). Funciona apenas com type 'text' ou 'password'.",
+    possibleValues: ["true", "false"],
+    examples: [
+      "true",
+      "false"
+    ],
   },
 ];
 
@@ -351,10 +644,31 @@ export class FlowTestLanguageService {
       const docEntry = this.getDocumentationForKey(context);
       if (docEntry) {
         const markdown = new vscode.MarkdownString();
-        markdown.appendMarkdown(`**${docEntry.title}**\n\n`);
+        markdown.appendMarkdown(`**${docEntry.title}**`);
+        
+        if (docEntry.type) {
+          markdown.appendMarkdown(` \`${docEntry.type}\``);
+        }
+        markdown.appendMarkdown(`\n\n`);
         markdown.appendMarkdown(docEntry.description);
+        
+        // Add possible values
+        if (docEntry.possibleValues && docEntry.possibleValues.length > 0) {
+          markdown.appendMarkdown(`\n\n**Valores possíveis:**\n`);
+          docEntry.possibleValues.forEach(value => {
+            markdown.appendMarkdown(`- \`${value}\`\n`);
+          });
+        }
+        
+        // Add examples
+        if (docEntry.examples && docEntry.examples.length > 0) {
+          markdown.appendMarkdown(`\n\n**Exemplos:**\n\`\`\`yaml\n`);
+          markdown.appendMarkdown(docEntry.examples.join('\n'));
+          markdown.appendMarkdown(`\n\`\`\`\n`);
+        }
+        
         if (docEntry.url) {
-          markdown.appendMarkdown(`\n\n[Ver documentação](${docEntry.url})`);
+          markdown.appendMarkdown(`\n\n[📖 Ver documentação completa](${docEntry.url})`);
           markdown.isTrusted = true;
         }
         const range = document.getWordRangeAtPosition(position, /[\w._-]+/);
@@ -659,6 +973,26 @@ export class FlowTestLanguageService {
       );
     }
 
+    if (
+      normalizedParent === "steps.*.request" ||
+      normalizedParent === "request"
+    ) {
+      return this.createCompletionsFromDocs(
+        REQUEST_KEY_SUGGESTIONS,
+        vscode.CompletionItemKind.Field
+      );
+    }
+
+    if (
+      normalizedParent === "steps.*.input" ||
+      normalizedParent === "input"
+    ) {
+      return this.createCompletionsFromDocs(
+        INPUT_KEY_SUGGESTIONS,
+        vscode.CompletionItemKind.Field
+      );
+    }
+
     return [];
   }
 
@@ -938,14 +1272,43 @@ export class FlowTestLanguageService {
   ): vscode.CompletionItem[] {
     return docs.map((entry) => {
       const item = new vscode.CompletionItem(entry.title, kind);
-      item.detail = entry.description;
-      if (entry.url) {
-        const markdown = new vscode.MarkdownString();
-        markdown.appendMarkdown(`**${entry.title}**\n\n${entry.description}`);
-        markdown.appendMarkdown(`\n\n[Documentação](${entry.url})`);
-        markdown.isTrusted = true;
-        item.documentation = markdown;
+      
+      // Set detail with type information
+      if (entry.type) {
+        item.detail = `${entry.type}`;
       }
+      
+      // Create rich markdown documentation
+      const markdown = new vscode.MarkdownString();
+      markdown.appendMarkdown(`**${entry.title}**`);
+      
+      if (entry.type) {
+        markdown.appendMarkdown(` \`${entry.type}\``);
+      }
+      markdown.appendMarkdown(`\n\n`);
+      markdown.appendMarkdown(entry.description);
+      
+      // Add possible values
+      if (entry.possibleValues && entry.possibleValues.length > 0) {
+        markdown.appendMarkdown(`\n\n**Valores possíveis:**\n`);
+        entry.possibleValues.forEach(value => {
+          markdown.appendMarkdown(`- \`${value}\`\n`);
+        });
+      }
+      
+      // Add examples
+      if (entry.examples && entry.examples.length > 0) {
+        markdown.appendMarkdown(`\n\n**Exemplos:**\n\`\`\`yaml\n`);
+        markdown.appendMarkdown(entry.examples.join('\n'));
+        markdown.appendMarkdown(`\n\`\`\`\n`);
+      }
+      
+      if (entry.url) {
+        markdown.appendMarkdown(`\n\n[📖 Ver documentação completa](${entry.url})`);
+        markdown.isTrusted = true;
+      }
+      
+      item.documentation = markdown;
       return item;
     });
   }
@@ -982,6 +1345,18 @@ export class FlowTestLanguageService {
       normalizedParent === "assert"
     ) {
       return lookup(ASSERT_KEY_SUGGESTIONS, key);
+    }
+    if (
+      normalizedParent === "steps.*.request" ||
+      normalizedParent === "request"
+    ) {
+      return lookup(REQUEST_KEY_SUGGESTIONS, key);
+    }
+    if (
+      normalizedParent === "steps.*.input" ||
+      normalizedParent === "input"
+    ) {
+      return lookup(INPUT_KEY_SUGGESTIONS, key);
     }
     return undefined;
   }
